@@ -20,19 +20,22 @@ type DiscoverInstance struct {
 	// client 是 Consul API 客户端。
 	client *api.Client
 	// meta 是当前网关环境元数据。
-	meta   *micro.Meta
+	meta *micro.Meta
 	// conf 是发现配置。
-	conf   *ServiceConf
+	conf *ServiceConf
 
 	// method 保存 method -> appId 的映射。
-	method  micro.ServiceMethod
+	method micro.ServiceMethod
 	// service 保存 appId -> service nodes 的映射。
 	service micro.ServiceDiscover
 
 	// stopCh 用于终止 watch 循环。
 	stopCh chan struct{}
 	// once 确保 stopCh 只关闭一次。
-	once   sync.Once
+	once sync.Once
+
+	// watchEventCallback 用于向外透传服务变更事件。
+	watchEventCallback micro.WatchEventFunc
 }
 
 // NewDiscover 创建发现器。
@@ -96,6 +99,11 @@ func (s *DiscoverInstance) Unwatch() {
 	s.once.Do(func() { close(s.stopCh) })
 }
 
+// WatchEvent 注册服务变更回调。
+func (s *DiscoverInstance) WatchEvent(callback micro.WatchEventFunc) {
+	s.watchEventCallback = callback
+}
+
 // watchLoop 使用 Consul 阻塞查询监听服务目录变化。
 func (s *DiscoverInstance) watchLoop() {
 	// waitIndex 保存本轮阻塞查询起点。
@@ -148,9 +156,10 @@ func (s *DiscoverInstance) refreshAndDispatch() error {
 	before := s.service
 	s.service = nextService
 	s.refreshMethodsLocked()
-	// 当前预留事件构建能力，供后续扩展事件推送。
-	_ = buildEvents(before, nextService)
+	events := buildEvents(before, nextService)
 	s.mu.Unlock()
+
+	s.dispatchEvents(events)
 	return nil
 }
 
@@ -327,4 +336,17 @@ func sameNodes(left, right []*micro.ServiceNode) bool {
 		}
 	}
 	return true
+}
+
+func (s *DiscoverInstance) dispatchEvents(events []ServiceEvent) {
+	if s.watchEventCallback == nil || len(events) == 0 {
+		return
+	}
+	for _, event := range events {
+		raw := &micro.ServiceEvent{
+			Type:    micro.EventType(event.Type),
+			Service: event.Service,
+		}
+		go s.watchEventCallback(raw)
+	}
 }

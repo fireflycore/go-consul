@@ -11,6 +11,7 @@
 - `(*DiscoverInstance).GetService`：按 rpc method 获取服务节点
 - `(*DiscoverInstance).Watcher`：持续刷新本地发现缓存
 - `(*DiscoverInstance).Unwatch`：停止发现监听
+- `(*DiscoverInstance).WatchEvent`：订阅服务变更回调
 
 ## 配置模型
 
@@ -109,6 +110,9 @@ func main() {
 
 	go dis.Watcher()
 	defer dis.Unwatch()
+	dis.WatchEvent(func(event *micro.ServiceEvent) {
+		_ = event
+	})
 
 	time.Sleep(500 * time.Millisecond)
 
@@ -123,5 +127,5 @@ func main() {
 
 ## 说明
 
-- `ServiceEvent` 是 `go-consul/registry` 内部事件模型，不依赖 `go-micro` 的事件定义版本差异。
 - 发现器会维护两级索引：`method -> appId`、`appId -> nodes`，供网关快速路由。
+- `WatchEvent` 回调对外透传 `go-micro/registry.ServiceEvent`。
