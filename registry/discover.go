@@ -38,8 +38,8 @@ type DiscoverInstance struct {
 	watchEventCallback micro.WatchEventFunc
 }
 
-// NewDiscover 创建发现器。
-func NewDiscover(client *api.Client, meta *micro.Meta, conf *ServiceConf) (*DiscoverInstance, error) {
+// NewDiscover 创建发现器并返回统一发现接口。
+func NewDiscover(client *api.Client, meta *micro.Meta, conf *ServiceConf) (micro.Discovery, error) {
 	// 客户端不能为空。
 	if client == nil {
 		return nil, fmt.Errorf(micro.ErrClientIsNilFormat, "consul")
