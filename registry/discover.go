@@ -17,7 +17,7 @@ type DiscoverInstance struct {
 
 	client *api.Client
 	meta   *micro.Meta
-	conf   *micro.ServiceConf
+	conf   *ServiceConf
 
 	method  micro.ServiceMethod
 	service micro.ServiceDiscover
@@ -26,7 +26,7 @@ type DiscoverInstance struct {
 	once   sync.Once
 }
 
-func NewDiscover(client *api.Client, meta *micro.Meta, conf *micro.ServiceConf) (*DiscoverInstance, error) {
+func NewDiscover(client *api.Client, meta *micro.Meta, conf *ServiceConf) (*DiscoverInstance, error) {
 	if client == nil {
 		return nil, fmt.Errorf(micro.ErrClientIsNilFormat, "consul")
 	}

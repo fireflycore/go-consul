@@ -14,12 +14,12 @@ import (
 type RegisterInstance struct {
 	client *api.Client
 	meta   *micro.Meta
-	conf   *micro.ServiceConf
+	conf   *ServiceConf
 
 	serviceID string
 }
 
-func NewRegister(client *api.Client, meta *micro.Meta, conf *micro.ServiceConf) (*RegisterInstance, error) {
+func NewRegister(client *api.Client, meta *micro.Meta, conf *ServiceConf) (*RegisterInstance, error) {
 	if client == nil {
 		return nil, fmt.Errorf(micro.ErrClientIsNilFormat, "consul")
 	}
