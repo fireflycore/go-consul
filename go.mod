@@ -3,7 +3,7 @@ module github.com/fireflycore/go-consul
 go 1.25.1
 
 require (
-	github.com/fireflycore/go-micro v1.2.4
+	github.com/fireflycore/go-micro v1.2.7
 	github.com/hashicorp/consul/api v1.31.2
 )
 
