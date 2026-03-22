@@ -3,7 +3,7 @@ module github.com/fireflycore/go-consul
 go 1.25.1
 
 require (
-	github.com/fireflycore/go-micro v1.2.3
+	github.com/fireflycore/go-micro v1.2.4
 	github.com/hashicorp/consul/api v1.31.2
 )
 
@@ -23,8 +23,6 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
-	go.uber.org/multierr v1.11.0 // indirect
-	go.uber.org/zap v1.27.1 // indirect
 	golang.org/x/exp v0.0.0-20260312153236-7ab1446f8b90 // indirect
 	golang.org/x/net v0.52.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
