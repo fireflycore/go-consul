@@ -129,3 +129,4 @@ func main() {
 
 - 发现器会维护两级索引：`method -> appId`、`appId -> nodes`，供网关快速路由。
 - `WatchEvent` 回调对外透传 `go-micro/registry.ServiceEvent`。
+- 事件增删判定以 `app_id + instance_id` 为准，不保留旧判定路径。

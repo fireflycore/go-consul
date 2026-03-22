@@ -14,9 +14,10 @@ func TestDecodeServiceNodeFromMetaNode(t *testing.T) {
 	rawNode := &micro.ServiceNode{
 		Methods: map[string]bool{"/user.UserService/Login": true},
 		Meta: &micro.Meta{
-			Env:     "prod",
-			AppId:   "user-service",
-			Version: "v1.0.0",
+			Env:        "prod",
+			AppId:      "user-service",
+			InstanceId: "ins-1",
+			Version:    "v1.0.0",
 		},
 		Network: &micro.Network{
 			Internal: "10.0.0.2:8080",
@@ -50,7 +51,7 @@ func TestBuildEvents(t *testing.T) {
 	before := micro.ServiceDiscover{
 		"a": []*micro.ServiceNode{
 			{
-				Meta:    &micro.Meta{AppId: "a"},
+				Meta:    &micro.Meta{AppId: "a", InstanceId: "ins-a"},
 				Network: &micro.Network{Internal: "10.0.0.1:8080"},
 			},
 		},
@@ -59,7 +60,7 @@ func TestBuildEvents(t *testing.T) {
 	after := micro.ServiceDiscover{
 		"b": []*micro.ServiceNode{
 			{
-				Meta:    &micro.Meta{AppId: "b"},
+				Meta:    &micro.Meta{AppId: "b", InstanceId: "ins-b"},
 				Network: &micro.Network{Internal: "10.0.0.2:8080"},
 			},
 		},

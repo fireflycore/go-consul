@@ -68,6 +68,8 @@ func (s *RegisterInstance) Install(service *micro.ServiceNode) error {
 	if instanceID == "" {
 		instanceID = fmt.Sprintf("%s-%d", s.meta.AppId, time.Now().UnixNano())
 	}
+	// 明确写入实例标识，供发现层按 app_id+instance_id 做事件判定。
+	service.Meta.InstanceId = instanceID
 	// 组合 Consul Service ID。
 	s.serviceID = fmt.Sprintf("%s-%s", s.meta.AppId, instanceID)
 
@@ -98,6 +100,7 @@ func (s *RegisterInstance) Install(service *micro.ServiceNode) error {
 		Meta: map[string]string{
 			"env":              s.meta.Env,
 			"app_id":           s.meta.AppId,
+			"instance_id":      service.Meta.InstanceId,
 			"version":          s.meta.Version,
 			"network_sn":       service.Network.SN,
 			"network_external": service.Network.External,

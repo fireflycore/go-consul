@@ -243,9 +243,10 @@ func decodeServiceNode(row *api.ServiceEntry) *micro.ServiceNode {
 	node := &micro.ServiceNode{
 		Methods: map[string]bool{},
 		Meta: &micro.Meta{
-			AppId:   row.Service.Service,
-			Env:     row.Service.Meta["env"],
-			Version: row.Service.Meta["version"],
+			AppId:      row.Service.Service,
+			InstanceId: row.Service.Meta["instance_id"],
+			Env:        row.Service.Meta["env"],
+			Version:    row.Service.Meta["version"],
 		},
 		Network: &micro.Network{
 			SN:       row.Service.Meta["network_sn"],
@@ -282,56 +283,81 @@ func decodeServiceNode(row *api.ServiceEntry) *micro.ServiceNode {
 	return node
 }
 
-// buildEvents 对比前后快照，生成增删改事件集合。
+// buildEvents 对比前后快照，按 app_id+instance_id 生成增删改事件集合。
 func buildEvents(before, after micro.ServiceDiscover) []ServiceEvent {
-	events := make([]ServiceEvent, 0, len(before)+len(after))
-	for appID, nodes := range after {
-		prev, ok := before[appID]
+	beforeMap := flattenServiceMap(before)
+	afterMap := flattenServiceMap(after)
+	events := make([]ServiceEvent, 0, len(beforeMap)+len(afterMap))
+
+	for key, next := range afterMap {
+		prev, ok := beforeMap[key]
 		if !ok {
-			for _, node := range nodes {
-				events = append(events, ServiceEvent{Type: EventAdd, Service: node})
-			}
+			events = append(events, ServiceEvent{Type: EventAdd, Service: next})
 			continue
 		}
-		if !sameNodes(prev, nodes) {
-			for _, node := range nodes {
-				events = append(events, ServiceEvent{Type: EventUpdate, Service: node})
-			}
+		if !sameServiceNodeForEvent(prev, next) {
+			events = append(events, ServiceEvent{Type: EventUpdate, Service: next})
 		}
 	}
-
-	for appID, nodes := range before {
-		if _, ok := after[appID]; ok {
+	for key, prev := range beforeMap {
+		if _, ok := afterMap[key]; ok {
 			continue
 		}
-		for _, node := range nodes {
-			events = append(events, ServiceEvent{Type: EventDelete, Service: node})
-		}
+		events = append(events, ServiceEvent{Type: EventDelete, Service: prev})
 	}
-
 	return events
 }
 
-// sameNodes 判断两组节点是否是同一集合。
-func sameNodes(left, right []*micro.ServiceNode) bool {
-	// 长度不同可直接判定不相同。
-	if len(left) != len(right) {
+func flattenServiceMap(discover micro.ServiceDiscover) map[string]*micro.ServiceNode {
+	raw := make(map[string]*micro.ServiceNode)
+	for _, nodes := range discover {
+		for _, node := range nodes {
+			key := serviceInstanceKey(node)
+			if key == "" {
+				continue
+			}
+			raw[key] = node
+		}
+	}
+	return raw
+}
+
+func serviceInstanceKey(node *micro.ServiceNode) string {
+	if node == nil || node.Meta == nil {
+		return ""
+	}
+	if node.Meta.AppId == "" || node.Meta.InstanceId == "" {
+		return ""
+	}
+	return node.Meta.AppId + "|" + node.Meta.InstanceId
+}
+
+func sameServiceNodeForEvent(left, right *micro.ServiceNode) bool {
+	if left == nil || right == nil || left.Meta == nil || right.Meta == nil {
 		return false
 	}
-	// 构建左侧索引。
-	lm := make(map[string]struct{}, len(left))
-	for _, n := range left {
-		if n == nil || n.Meta == nil || n.Network == nil {
-			continue
-		}
-		lm[n.Meta.AppId+"|"+n.Network.Internal] = struct{}{}
+	if left.Meta.AppId != right.Meta.AppId ||
+		left.Meta.InstanceId != right.Meta.InstanceId ||
+		left.Meta.Env != right.Meta.Env ||
+		left.Meta.Version != right.Meta.Version {
+		return false
 	}
-	// 校验右侧节点是否都在左侧索引中。
-	for _, n := range right {
-		if n == nil || n.Meta == nil || n.Network == nil {
-			continue
-		}
-		if _, ok := lm[n.Meta.AppId+"|"+n.Network.Internal]; !ok {
+	if left.Network == nil || right.Network == nil {
+		return false
+	}
+	if left.Network.Internal != right.Network.Internal ||
+		left.Network.External != right.Network.External ||
+		left.Network.SN != right.Network.SN {
+		return false
+	}
+	if left.Weight != right.Weight || left.RunDate != right.RunDate {
+		return false
+	}
+	if len(left.Methods) != len(right.Methods) {
+		return false
+	}
+	for method := range left.Methods {
+		if !right.Methods[method] {
 			return false
 		}
 	}
