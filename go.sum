@@ -27,8 +27,8 @@ github.com/fatih/color v1.9.0/go.mod h1:eQcE1qtQxscV5RaZvpXrrb8Drkc3/DdQ+uUYCNjL
 github.com/fatih/color v1.13.0/go.mod h1:kLAiJbzzSOZDVNGyDpeOxJ47H46qBXwg5ILebYFFOfk=
 github.com/fatih/color v1.16.0 h1:zmkK9Ngbjj+K0yRhTVONQh1p/HknKYSlNT+vZCzyokM=
 github.com/fatih/color v1.16.0/go.mod h1:fL2Sau1YI5c0pdGEVCbKQbLXB6edEj1ZgiY4NijnWvE=
-github.com/fireflycore/go-micro v1.2.7 h1:F1IFrIPTXKBqJT8qunVZhZyOXLmyVgFZijKFmfrLUsA=
-github.com/fireflycore/go-micro v1.2.7/go.mod h1:88gqMu9iB9MuhEcorEB4E5G659qD/0bAgimenVgcTeU=
+github.com/fireflycore/go-micro v1.2.8 h1:rIe372cS8Plov/ftIgfOQyx6zhLJoyQ9wad0qXSaLV0=
+github.com/fireflycore/go-micro v1.2.8/go.mod h1:88gqMu9iB9MuhEcorEB4E5G659qD/0bAgimenVgcTeU=
 github.com/fireflycore/go-utils v0.3.6 h1:Cvc6S31p5lOsJTdJMxTrF7MYod1HdsLb7kYwHIbjLYE=
 github.com/fireflycore/go-utils v0.3.6/go.mod h1:Sg9E/2bnNlSuvsO9zoobo4Qc+y7Xf/KSp3tQq+BjzBg=
 github.com/go-kit/kit v0.8.0/go.mod h1:xBxKIO96dXMWWy0MnWVtmwkA9/13aqxPnvrjFYMA2as=
