@@ -64,14 +64,14 @@ func (s *RegisterInstance) Install(service *micro.ServiceNode) error {
 	service.RunDate = time.Now().Format(time.DateTime)
 
 	// 优先使用显式实例 ID，否则基于 appId+时间戳生成。
-	instanceID := s.conf.InstanceId
-	if instanceID == "" {
-		instanceID = fmt.Sprintf("%s-%d", s.meta.AppId, time.Now().UnixNano())
+	instanceId := s.conf.InstanceId
+	if instanceId == "" {
+		instanceId = fmt.Sprintf("%s-%d", s.meta.AppId, time.Now().UnixNano())
 	}
 	// 明确写入实例标识，供发现层按 app_id+instance_id 做事件判定。
-	service.Meta.InstanceId = instanceID
+	service.Meta.InstanceId = instanceId
 	// 组合 Consul Service ID。
-	s.serviceID = fmt.Sprintf("%s-%s", s.meta.AppId, instanceID)
+	s.serviceID = fmt.Sprintf("%s-%s", s.meta.AppId, instanceId)
 
 	// 解析注册地址与端口。
 	address, port, err := splitAddressPort(service.Network.Internal)

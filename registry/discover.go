@@ -70,20 +70,20 @@ func NewDiscover(client *api.Client, meta *micro.Meta, conf *ServiceConf) (micro
 func (s *DiscoverInstance) GetService(method string) ([]*micro.ServiceNode, string, error) {
 	// 先查 method 索引得到 appId。
 	s.mu.RLock()
-	appID, ok := s.method[method]
+	appId, ok := s.method[method]
 	if !ok {
 		s.mu.RUnlock()
 		return nil, "", micro.ErrServiceMethodNotExists
 	}
-	nodes, ok := s.service[appID]
+	nodes, ok := s.service[appId]
 	if !ok {
 		s.mu.RUnlock()
-		return nil, appID, micro.ErrServiceNodeNotExists
+		return nil, appId, micro.ErrServiceNodeNotExists
 	}
 	// 返回副本，避免调用方改动内部切片。
 	out := append([]*micro.ServiceNode(nil), nodes...)
 	s.mu.RUnlock()
-	return out, appID, nil
+	return out, appId, nil
 }
 
 // Watcher 启动发现刷新与阻塞监听。
@@ -173,23 +173,23 @@ func (s *DiscoverInstance) fetchHealthyServices() (micro.ServiceDiscover, error)
 
 	// 逐服务拉取健康节点并写入目标映射。
 	dst := make(micro.ServiceDiscover)
-	for appID := range services {
-		nodes, err := s.fetchServiceNodes(appID)
+	for appId := range services {
+		nodes, err := s.fetchServiceNodes(appId)
 		if err != nil {
 			continue
 		}
 		if len(nodes) == 0 {
 			continue
 		}
-		dst[appID] = nodes
+		dst[appId] = nodes
 	}
 	return dst, nil
 }
 
 // fetchServiceNodes 拉取指定 appId 的健康节点并做环境过滤。
-func (s *DiscoverInstance) fetchServiceNodes(appID string) ([]*micro.ServiceNode, error) {
+func (s *DiscoverInstance) fetchServiceNodes(appId string) ([]*micro.ServiceNode, error) {
 	// passingOnly=true 仅返回健康节点。
-	rows, _, err := s.client.Health().Service(appID, "", true, &api.QueryOptions{})
+	rows, _, err := s.client.Health().Service(appId, "", true, &api.QueryOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -209,13 +209,13 @@ func (s *DiscoverInstance) fetchServiceNodes(appID string) ([]*micro.ServiceNode
 // refreshMethodsLocked 基于 service 索引重建 method 索引。
 func (s *DiscoverInstance) refreshMethodsLocked() {
 	next := make(micro.ServiceMethod)
-	for appID, nodes := range s.service {
+	for appId, nodes := range s.service {
 		for _, node := range nodes {
 			if node == nil {
 				continue
 			}
 			for method := range node.Methods {
-				next[method] = appID
+				next[method] = appId
 			}
 		}
 	}
