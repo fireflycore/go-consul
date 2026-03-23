@@ -72,3 +72,18 @@ func TestBuildEvents(t *testing.T) {
 		t.Fatalf("unexpected event count: %d", len(events))
 	}
 }
+
+func TestMatchesNamespace(t *testing.T) {
+	if !matchesNamespace(map[string]string{"namespace": "ns-a"}, "ns-a") {
+		t.Fatal("expected namespace match")
+	}
+	if matchesNamespace(map[string]string{"namespace": "ns-a"}, "ns-b") {
+		t.Fatal("unexpected namespace mismatch accepted")
+	}
+	if matchesNamespace(nil, "ns-a") {
+		t.Fatal("empty meta should not match non-empty namespace")
+	}
+	if !matchesNamespace(nil, "") {
+		t.Fatal("empty namespace should bypass namespace filter")
+	}
+}

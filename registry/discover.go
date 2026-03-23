@@ -197,6 +197,9 @@ func (s *DiscoverInstance) fetchServiceNodes(appId string) ([]*micro.ServiceNode
 	// 解码节点并过滤到当前环境。
 	nodes := make([]*micro.ServiceNode, 0, len(rows))
 	for _, row := range rows {
+		if row == nil || row.Service == nil || !matchesNamespace(row.Service.Meta, s.conf.Namespace) {
+			continue
+		}
 		node := decodeServiceNode(row)
 		if node == nil || node.Meta == nil || node.Meta.Env != s.meta.Env {
 			continue
@@ -281,6 +284,16 @@ func decodeServiceNode(row *api.ServiceEntry) *micro.ServiceNode {
 	}
 
 	return node
+}
+
+func matchesNamespace(meta map[string]string, namespace string) bool {
+	if strings.TrimSpace(namespace) == "" {
+		return true
+	}
+	if len(meta) == 0 {
+		return false
+	}
+	return strings.TrimSpace(meta["namespace"]) == strings.TrimSpace(namespace)
 }
 
 // buildEvents 对比前后快照，按 app_id+instance_id 生成增删改事件集合。

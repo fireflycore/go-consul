@@ -27,6 +27,7 @@
 
 注册时会把核心信息编码到 Consul `Meta`，包括：
 
+- `namespace`
 - `env`、`app_id`、`version`
 - `network_sn`、`network_external`
 - `kernel_language`、`kernel_version`
@@ -128,5 +129,6 @@ func main() {
 ## 说明
 
 - 发现器会维护两级索引：`method -> appId`、`appId -> nodes`，供网关快速路由。
+- 发现器会按 `ServiceConf.Namespace` 过滤实例，避免跨业务命名空间串流量。
 - `WatchEvent` 回调对外透传 `go-micro/registry.ServiceEvent`。
 - 事件增删判定以 `app_id + instance_id` 为准，不保留旧判定路径。

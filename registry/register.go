@@ -98,6 +98,7 @@ func (s *RegisterInstance) Install(service *micro.ServiceNode) error {
 		Address: address,
 		Port:    port,
 		Meta: map[string]string{
+			"namespace":        s.conf.Namespace,
 			"env":              s.meta.Env,
 			"app_id":           s.meta.AppId,
 			"instance_id":      service.Meta.InstanceId,
