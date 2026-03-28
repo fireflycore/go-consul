@@ -4,12 +4,14 @@
 
 - Consul 客户端初始化（根包）
 - 服务注册与网关发现（`registry` 子包）
+- 轻量服务调用实现（`invocation` 子包）
 
 ## 包结构
 
 - `conf.go`：Consul 客户端配置模型
 - `core.go`：根据配置创建 `*api.Client`
 - `registry/`：注册中心实现（注册、注销、发现、监听）
+- `invocation/`：面向 `service -> service` 的轻量服务调用实现
 
 ## 客户端初始化
 
@@ -44,9 +46,11 @@ func main() {
 详细使用方式与模型说明见：
 
 - [registry/README.md](file:///Users/lhdht/product/firefly/go-consul/registry/README.md)
+- [invocation/README.md](./invocation/README.md)
 
 ## 设计约束
 
 - 业务服务不做服务发现，只做服务注册
 - 服务发现能力由网关统一使用
 - Consul 特有能力（健康检查、阻塞查询、事件模型）放在 `go-consul/registry` 内部维护
+- 新的服务调用主路径应优先围绕 `invocation` 收敛
