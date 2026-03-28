@@ -14,7 +14,7 @@ type ServiceConf struct {
 	// 网卡
 	Network *micro.Network `json:"network"`
 	// 内核
-	Kernel *micro.Kernel `json:"kernel"`
+	Kernel *micro.ServiceKernel `json:"kernel"`
 
 	// 最大重试次数, 间隔时间是TTL*5
 	MaxRetry uint32 `json:"max_retry"`
@@ -45,7 +45,7 @@ func (sc *ServiceConf) Bootstrap() {
 
 	// Kernel 为空时分配默认对象。
 	if sc.Kernel == nil {
-		sc.Kernel = &micro.Kernel{}
+		sc.Kernel = &micro.ServiceKernel{}
 	}
 	// 统一补齐 Kernel 内部字段。
 	sc.Kernel.Bootstrap()

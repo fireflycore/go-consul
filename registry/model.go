@@ -17,7 +17,7 @@ const (
 // ServiceEvent 是发现层事件载体。
 type ServiceEvent struct {
 	// Type 表示事件类型。
-	Type    EventType
+	Type EventType
 	// Service 表示发生变化的节点对象。
 	Service *micro.ServiceNode
 }

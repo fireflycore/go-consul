@@ -16,7 +16,7 @@ type RegisterInstance struct {
 	// client 是 Consul API 客户端。
 	client *api.Client
 	// meta 保存服务级元数据。
-	meta *micro.Meta
+	meta *micro.ServiceMeta
 	// conf 保存注册配置。
 	conf *ServiceConf
 
@@ -25,7 +25,7 @@ type RegisterInstance struct {
 }
 
 // NewRegister 创建一个 Consul 注册器实例并返回统一注册接口。
-func NewRegister(client *api.Client, meta *micro.Meta, conf *ServiceConf) (micro.Register, error) {
+func NewRegister(client *api.Client, meta *micro.ServiceMeta, conf *ServiceConf) (micro.Register, error) {
 	// 客户端不能为空。
 	if client == nil {
 		return nil, fmt.Errorf(micro.ErrClientIsNilFormat, "consul")

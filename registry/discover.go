@@ -20,7 +20,7 @@ type DiscoverInstance struct {
 	// client 是 Consul API 客户端。
 	client *api.Client
 	// meta 是当前网关环境元数据。
-	meta *micro.Meta
+	meta *micro.ServiceMeta
 	// conf 是发现配置。
 	conf *ServiceConf
 
@@ -39,7 +39,7 @@ type DiscoverInstance struct {
 }
 
 // NewDiscover 创建发现器并返回统一发现接口。
-func NewDiscover(client *api.Client, meta *micro.Meta, conf *ServiceConf) (micro.Discovery, error) {
+func NewDiscover(client *api.Client, meta *micro.ServiceMeta, conf *ServiceConf) (micro.Discovery, error) {
 	// 客户端不能为空。
 	if client == nil {
 		return nil, fmt.Errorf(micro.ErrClientIsNilFormat, "consul")
@@ -245,7 +245,7 @@ func decodeServiceNode(row *api.ServiceEntry) *micro.ServiceNode {
 	// 回退路径：从离散字段拼装 ServiceNode。
 	node := &micro.ServiceNode{
 		Methods: map[string]bool{},
-		Meta: &micro.Meta{
+		Meta: &micro.ServiceMeta{
 			AppId:      row.Service.Service,
 			InstanceId: row.Service.Meta["instance_id"],
 			Env:        row.Service.Meta["env"],
@@ -256,7 +256,7 @@ func decodeServiceNode(row *api.ServiceEntry) *micro.ServiceNode {
 			Internal: fmt.Sprintf("%s:%d", row.Service.Address, row.Service.Port),
 			External: row.Service.Meta["network_external"],
 		},
-		Kernel: &micro.Kernel{
+		Kernel: &micro.ServiceKernel{
 			Language: row.Service.Meta["kernel_language"],
 			Version:  row.Service.Meta["kernel_version"],
 		},

@@ -13,7 +13,7 @@ func TestDecodeServiceNodeFromMetaNode(t *testing.T) {
 	// 构造一个完整节点对象用于序列化。
 	rawNode := &micro.ServiceNode{
 		Methods: map[string]bool{"/user.UserService/Login": true},
-		Meta: &micro.Meta{
+		Meta: &micro.ServiceMeta{
 			Env:        "prod",
 			AppId:      "user-service",
 			InstanceId: "ins-1",
@@ -51,7 +51,7 @@ func TestBuildEvents(t *testing.T) {
 	before := micro.ServiceDiscover{
 		"a": []*micro.ServiceNode{
 			{
-				Meta:    &micro.Meta{AppId: "a", InstanceId: "ins-a"},
+				Meta:    &micro.ServiceMeta{AppId: "a", InstanceId: "ins-a"},
 				Network: &micro.Network{Internal: "10.0.0.1:8080"},
 			},
 		},
@@ -60,7 +60,7 @@ func TestBuildEvents(t *testing.T) {
 	after := micro.ServiceDiscover{
 		"b": []*micro.ServiceNode{
 			{
-				Meta:    &micro.Meta{AppId: "b", InstanceId: "ins-b"},
+				Meta:    &micro.ServiceMeta{AppId: "b", InstanceId: "ins-b"},
 				Network: &micro.Network{Internal: "10.0.0.2:8080"},
 			},
 		},
