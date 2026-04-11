@@ -4,12 +4,12 @@ import (
 	"context"
 	"time"
 
-	microconfig "github.com/fireflycore/go-micro/config"
+	microConfig "github.com/fireflycore/go-micro/config"
 	"github.com/hashicorp/consul/api"
 )
 
 // Watch 监听指定配置键的变更事件。
-func (s *StoreInstance) Watch(ctx context.Context, key microconfig.Key) (<-chan microconfig.WatchEvent, error) {
+func (s *StoreInstance) Watch(ctx context.Context, key microConfig.Key) (<-chan microConfig.WatchEvent, error) {
 	// key 不合法时直接返回统一错误。
 	if err := validateKey(key); err != nil {
 		return nil, err
@@ -35,7 +35,7 @@ func (s *StoreInstance) Watch(ctx context.Context, key microconfig.Key) (<-chan 
 	if s.options != nil && s.options.WatchBuffer > 0 {
 		bufferSize = s.options.WatchBuffer
 	}
-	out := make(chan microconfig.WatchEvent, bufferSize)
+	out := make(chan microConfig.WatchEvent, bufferSize)
 
 	// 启动异步 blocking query 监听循环。
 	go func() {
@@ -103,7 +103,7 @@ func (s *StoreInstance) Watch(ctx context.Context, key microconfig.Key) (<-chan 
 }
 
 // Unwatch 取消指定配置键的监听。
-func (s *StoreInstance) Unwatch(key microconfig.Key) {
+func (s *StoreInstance) Unwatch(key microConfig.Key) {
 	// key 不合法时直接忽略，保持幂等。
 	if err := validateKey(key); err != nil {
 		return
@@ -120,30 +120,30 @@ func (s *StoreInstance) Unwatch(key microconfig.Key) {
 }
 
 // toWatchEvent 把 Consul KV 查询结果转换为统一 watch 事件。
-func (s *StoreInstance) toWatchEvent(key microconfig.Key, kv *api.KVPair) (microconfig.WatchEvent, bool) {
+func (s *StoreInstance) toWatchEvent(key microConfig.Key, kv *api.KVPair) (microConfig.WatchEvent, bool) {
 	// 删除场景：key 不存在。
 	if kv == nil {
-		return microconfig.WatchEvent{
-			Type: microconfig.EventDelete,
+		return microConfig.WatchEvent{
+			Type: microConfig.EventDelete,
 			Key:  key,
 		}, true
 	}
 
 	// 读取到的数据为空时视为无效事件。
 	if len(kv.Value) == 0 {
-		return microconfig.WatchEvent{}, false
+		return microConfig.WatchEvent{}, false
 	}
 
 	// 解析配置内容。
-	item, err := s.decodeItem(kv.Value)
+	raw, err := s.decodeRaw(kv.Value)
 	if err != nil {
-		return microconfig.WatchEvent{}, false
+		return microConfig.WatchEvent{}, false
 	}
 
 	// 返回统一 put 事件。
-	return microconfig.WatchEvent{
-		Type: microconfig.EventPut,
+	return microConfig.WatchEvent{
+		Type: microConfig.EventPut,
 		Key:  key,
-		Item: item,
+		Raw:  raw,
 	}, true
 }

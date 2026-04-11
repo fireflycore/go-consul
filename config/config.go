@@ -3,11 +3,11 @@ package config
 import (
 	"time"
 
-	microconfig "github.com/fireflycore/go-micro/config"
+	microConfig "github.com/fireflycore/go-micro/config"
 )
 
-// Conf 定义 go-consul/config 的可选初始化参数。
-type Conf struct {
+// Config 定义 go-consul/config 的可选初始化参数。
+type Config struct {
 	// Namespace 表示配置存储根路径，如 /config-center。
 	Namespace string `json:"namespace"`
 	// Timeout 表示单次 Consul 读写超时时间。
@@ -21,9 +21,9 @@ type Conf struct {
 }
 
 // BuildOptions 把 Conf 转换为统一的 micro config options。
-func (c *Conf) BuildOptions(opts ...microconfig.Option) *microconfig.Options {
+func (c *Config) BuildOptions(opts ...microConfig.Option) *microConfig.Options {
 	// 先应用外部传入的 option，保证调用方可覆盖默认值。
-	raw := microconfig.NewOptions(opts...)
+	raw := microConfig.NewOptions(opts...)
 	// 空配置直接返回外部 option 结果。
 	if c == nil {
 		return raw
