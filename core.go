@@ -7,7 +7,7 @@ import (
 )
 
 // New 根据入参创建 Consul API 客户端。
-func New(c *Conf) (*api.Client, error) {
+func New(c *Config) (*api.Client, error) {
 	// 配置不能为空，否则无法构建客户端。
 	if c == nil {
 		return nil, errors.New("consul: conf is nil")

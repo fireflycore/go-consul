@@ -1,7 +1,7 @@
 package consul
 
-// Conf 定义 Consul 客户端初始化配置。
-type Conf struct {
+// Config 定义 Consul 客户端初始化配置。
+type Config struct {
 	// Address 是 Consul HTTP API 地址，例如 127.0.0.1:8500。
 	Address string `json:"address"`
 	// Scheme 是访问协议，常见值为 http 或 https。

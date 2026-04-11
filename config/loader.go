@@ -10,7 +10,7 @@ import (
 // NewStoreFromLoader 基于统一加载参数创建 Consul 配置存储实例。
 // 流程：先按 local / remote 解析出 consul.Conf，再创建客户端，最后构建 Store。
 func NewStoreFromLoader(params microConfig.LoaderParams, localLoad microConfig.LocalLoaderFunc, remoteLoad microConfig.RemoteLoaderFunc, payloadDecode microConfig.PayloadDecodeFunc, config *Config, opts ...microConfig.Option) (microConfig.Store, error) {
-	backendConf, err := microConfig.LoadConfig[consul.Conf](params, localLoad, remoteLoad, payloadDecode)
+	backendConf, err := microConfig.LoadConfig[consul.Config](params, localLoad, remoteLoad, payloadDecode)
 	if err != nil {
 		return nil, err
 	}
