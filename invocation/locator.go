@@ -2,8 +2,7 @@ package invocation
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
+	"errors"
 	"net"
 	"strconv"
 	"strings"
@@ -11,7 +10,6 @@ import (
 	"time"
 
 	microInvocation "github.com/fireflycore/go-micro/invocation"
-	microRegistry "github.com/fireflycore/go-micro/registry"
 	"github.com/hashicorp/consul/api"
 )
 
@@ -32,7 +30,7 @@ type cachedEndpoints struct {
 // - 否则读取 Consul 健康实例列表，在本地做轻量 endpoint 选择。
 type Locator struct {
 	health healthService
-	conf   Conf
+	config *Config
 
 	mu      sync.Mutex
 	cache   map[string]cachedEndpoints
@@ -41,18 +39,18 @@ type Locator struct {
 }
 
 // NewLocator 创建 Consul invocation 定位器。
-func NewLocator(client *api.Client, conf *Conf) (*Locator, error) {
+func NewLocator(client *api.Client, config *Config) (*Locator, error) {
 	if client == nil {
-		return nil, fmt.Errorf(microRegistry.ErrClientIsNilFormat, "consul")
+		return nil, errors.New("consul client is nil")
 	}
-	if conf == nil {
-		conf = &Conf{}
+	if config == nil {
+		config = &Config{}
 	}
-	conf.Bootstrap()
+	config.Bootstrap()
 
 	return &Locator{
 		health:  client.Health(),
-		conf:    *conf,
+		config:  config,
 		cache:   make(map[string]cachedEndpoints),
 		cursor:  make(map[string]uint64),
 		nowFunc: time.Now,
@@ -61,15 +59,11 @@ func NewLocator(client *api.Client, conf *Conf) (*Locator, error) {
 
 // Resolve 根据 ServiceRef 解析最终 Target。
 func (l *Locator) Resolve(ctx context.Context, ref microInvocation.ServiceRef) (microInvocation.Target, error) {
-	_ = ctx
-
 	ref = l.normalizeRef(ref)
-	if l.conf.PreferServiceDNS {
-		return microInvocation.BuildTarget(ref, microInvocation.TargetOptions{
-			DefaultPort:    l.conf.DefaultPort,
-			ClusterDomain:  l.conf.ClusterDomain,
-			ResolverScheme: l.conf.ResolverScheme,
-		})
+	if l.config.PreferServiceDNS {
+		return microInvocation.StaticLocator{
+			Options: l.config.TargetOptions,
+		}.Resolve(ctx, ref)
 	}
 
 	endpoints, err := l.loadEndpoints(ref)
@@ -95,7 +89,7 @@ func (l *Locator) Resolve(ctx context.Context, ref microInvocation.ServiceRef) (
 
 func (l *Locator) normalizeRef(ref microInvocation.ServiceRef) microInvocation.ServiceRef {
 	if strings.TrimSpace(ref.Namespace) == "" {
-		ref.Namespace = l.conf.Namespace
+		ref.Namespace = l.config.Namespace
 	}
 	return ref
 }
@@ -119,7 +113,7 @@ func (l *Locator) loadEndpoints(ref microInvocation.ServiceRef) ([]microInvocati
 	l.mu.Lock()
 	l.cache[key] = cachedEndpoints{
 		endpoints: append([]microInvocation.ServiceEndpoint(nil), endpoints...),
-		expiresAt: l.nowFunc().Add(l.conf.CacheTTL),
+		expiresAt: l.nowFunc().Add(l.config.CacheTTL),
 	}
 	l.mu.Unlock()
 
@@ -171,52 +165,33 @@ func (l *Locator) cacheKey(ref microInvocation.ServiceRef) string {
 }
 
 func decodeEndpoint(row *api.ServiceEntry, ref microInvocation.ServiceRef) (microInvocation.ServiceEndpoint, bool) {
-	if row == nil || row.Service == nil || row.Service.Meta == nil {
+	if row == nil || row.Service == nil {
 		return microInvocation.ServiceEndpoint{}, false
 	}
-	if row.Service.Meta["namespace"] != ref.NamespaceName() {
+	meta := copyMeta(row.Service.Meta)
+	if meta["namespace"] != ref.NamespaceName() {
 		return microInvocation.ServiceEndpoint{}, false
 	}
-	if strings.TrimSpace(ref.Env) != "" && row.Service.Meta["env"] != strings.TrimSpace(ref.Env) {
+	if strings.TrimSpace(ref.Env) != "" && meta["env"] != strings.TrimSpace(ref.Env) {
 		return microInvocation.ServiceEndpoint{}, false
-	}
-
-	var node microRegistry.ServiceNode
-	if raw := row.Service.Meta["node"]; raw != "" {
-		if err := json.Unmarshal([]byte(raw), &node); err == nil && node.Network != nil && node.Network.Internal != "" {
-			return microInvocation.ServiceEndpoint{
-				Address: node.Network.Internal,
-				Weight:  node.Weight,
-				Healthy: true,
-				Meta: map[string]string{
-					"app_id":      row.Service.Meta["app_id"],
-					"instance_id": row.Service.Meta["instance_id"],
-					"env":         row.Service.Meta["env"],
-					"version":     row.Service.Meta["version"],
-				},
-			}, true
-		}
 	}
 
 	address := row.Service.Address
-	if address == "" {
+	if address == "" && row.Node != nil {
 		address = row.Node.Address
 	}
 	if address == "" || row.Service.Port == 0 {
 		return microInvocation.ServiceEndpoint{}, false
 	}
 
-	return microInvocation.ServiceEndpoint{
+	endpoint := microInvocation.ServiceEndpoint{
 		Address: net.JoinHostPort(address, strconv.Itoa(row.Service.Port)),
-		Weight:  parseWeight(row.Service.Meta["weight"]),
+		Weight:  parseWeight(meta["weight"]),
 		Healthy: true,
-		Meta: map[string]string{
-			"app_id":      row.Service.Meta["app_id"],
-			"instance_id": row.Service.Meta["instance_id"],
-			"env":         row.Service.Meta["env"],
-			"version":     row.Service.Meta["version"],
-		},
-	}, true
+		Meta:    meta,
+	}
+
+	return endpoint, true
 }
 
 func parseWeight(raw string) int {
@@ -240,4 +215,15 @@ func splitAddress(raw string) (string, uint16, error) {
 		return "", 0, err
 	}
 	return host, uint16(port), nil
+}
+
+func copyMeta(source map[string]string) map[string]string {
+	if len(source) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(source))
+	for key, value := range source {
+		out[key] = value
+	}
+	return out
 }

@@ -2,12 +2,10 @@ package invocation
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
 	microInvocation "github.com/fireflycore/go-micro/invocation"
-	microRegistry "github.com/fireflycore/go-micro/registry"
 	"github.com/hashicorp/consul/api"
 )
 
@@ -23,11 +21,13 @@ func (f fakeHealthService) Service(service, tag string, passingOnly bool, q *api
 func TestLocatorResolvePreferServiceDNS(t *testing.T) {
 	locator := &Locator{
 		health: fakeHealthService{},
-		conf: Conf{
-			Namespace:        "default",
-			DefaultPort:      9000,
-			ClusterDomain:    microInvocation.DefaultClusterDomain,
-			ResolverScheme:   microInvocation.DefaultResolverScheme,
+		config: &Config{
+			Namespace: "default",
+			TargetOptions: microInvocation.TargetOptions{
+				DefaultPort:    9000,
+				ClusterDomain:  microInvocation.DefaultClusterDomain,
+				ResolverScheme: microInvocation.DefaultResolverScheme,
+			},
 			PreferServiceDNS: true,
 			CacheTTL:         DefaultCacheTTL,
 		},
@@ -50,38 +50,28 @@ func TestLocatorResolvePreferServiceDNS(t *testing.T) {
 }
 
 func TestLocatorResolveReturnsEndpointTarget(t *testing.T) {
-	raw, err := json.Marshal(&microRegistry.ServiceNode{
-		Weight: 100,
-		Meta: &microRegistry.ServiceMeta{
-			AppId:      "auth",
-			InstanceId: "i-1",
-			Env:        "dev",
-		},
-		Network: &microRegistry.Network{
-			Internal: "127.0.0.1:9000",
-		},
-	})
-	if err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
-
 	locator := &Locator{
 		health: fakeHealthService{
 			rows: []*api.ServiceEntry{
 				{
 					Service: &api.AgentService{
 						Service: "auth",
+						Address: "127.0.0.1",
 						Port:    9000,
 						Meta: map[string]string{
-							"namespace": "default",
-							"env":       "dev",
-							"node":      string(raw),
+							"namespace":       "default",
+							"env":             "dev",
+							"app_id":          "auth",
+							"instance_id":     "i-1",
+							"version":         "v1",
+							"kernel_language": "golang",
+							"kernel_version":  "1.3.4",
 						},
 					},
 				},
 			},
 		},
-		conf: Conf{
+		config: &Config{
 			Namespace: "default",
 			CacheTTL:  DefaultCacheTTL,
 		},
@@ -103,5 +93,43 @@ func TestLocatorResolveReturnsEndpointTarget(t *testing.T) {
 	}
 	if target.Port != 9000 {
 		t.Fatalf("unexpected port: %d", target.Port)
+	}
+}
+
+func TestDecodeEndpointReadsGenericServiceMetadata(t *testing.T) {
+	endpoint, ok := decodeEndpoint(&api.ServiceEntry{
+		Service: &api.AgentService{
+			Service: "auth",
+			Address: "10.0.0.8",
+			Port:    9000,
+			Meta: map[string]string{
+				"namespace":       "default",
+				"env":             "prod",
+				"app_id":          "auth",
+				"instance_id":     "i-2",
+				"version":         "v2",
+				"weight":          "120",
+				"kernel_language": "golang",
+			},
+		},
+	}, microInvocation.ServiceRef{
+		Service:   "auth",
+		Namespace: "default",
+		Env:       "prod",
+	})
+	if !ok {
+		t.Fatalf("expected endpoint to be decoded")
+	}
+	if endpoint.Weight != 120 {
+		t.Fatalf("unexpected weight: %d", endpoint.Weight)
+	}
+	if endpoint.Meta["app_id"] != "auth" {
+		t.Fatalf("unexpected app_id: %s", endpoint.Meta["app_id"])
+	}
+	if endpoint.Meta["instance_id"] != "i-2" {
+		t.Fatalf("unexpected instance_id: %s", endpoint.Meta["instance_id"])
+	}
+	if endpoint.Meta["kernel_language"] != "golang" {
+		t.Fatalf("unexpected kernel_language: %s", endpoint.Meta["kernel_language"])
 	}
 }

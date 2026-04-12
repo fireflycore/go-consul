@@ -6,7 +6,7 @@ import (
 )
 
 // NewConnectionManager 创建基于 Consul Locator 的连接管理器。
-func NewConnectionManager(client *api.Client, conf *Conf, options microInvocation.ConnectionManagerOptions) (*microInvocation.ConnectionManager, error) {
+func NewConnectionManager(client *api.Client, conf *Config, options microInvocation.ConnectionManagerOptions) (*microInvocation.ConnectionManager, error) {
 	locator, err := NewLocator(client, conf)
 	if err != nil {
 		return nil, err
