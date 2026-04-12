@@ -1,6 +1,6 @@
 # Invocation
 
-`go-consul/invocation` 提供基于 Consul 的轻量服务调用实现。
+`go-consul/invocation` 提供基于 Consul 的裸机服务调用实现。
 
 它的目标是对齐 `go-micro/invocation` 的统一调用模型，而不是继续把业务调用暴露成节点发现问题。
 
@@ -9,14 +9,14 @@
 `go-consul/invocation` 适合：
 
 - 使用 Consul 维护服务健康信息的 IDC 环境
-- 需要保留 Consul 作为实现后端
+- 需要与 `go-consul/agent -> sidecar-agent -> consul / envoy` 主链配合的裸机场景
 - 但对外希望统一成 `service -> service` 调用模型的场景
 
 ## 当前提供的能力
 
-### Conf
+### Config
 
-`Conf` 用于描述 Consul invocation 的公共配置，例如：
+`Config` 用于描述 Consul invocation 的公共配置，例如：
 
 - `Namespace`
 - `DefaultPort`
@@ -59,6 +59,7 @@
 ## 设计约束
 
 - Consul 只作为实现后端
+- 裸机注册主链由 `go-consul/agent` 承接，`go-consul/invocation` 只负责调用侧
 - 不向业务侧泄漏实例列表与节点模型
 - 业务侧始终面向 `ServiceRef`
 - OTel 观测链路默认继续依赖 `go-micro/invocation.ConnectionManager`
@@ -67,7 +68,7 @@
 
 当前已经完成：
 
-- `Conf`
+- `Config`
 - `Locator`
 - `NewConnectionManager`
 - 单元测试
