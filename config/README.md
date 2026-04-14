@@ -1,14 +1,14 @@
 # config
 
-`go-consul/config` 是 `go-micro/config` 的 Consul 实现，提供统一的配置存储与监听能力。
+`go-consul/config` 是 `go-micro/config` 的 Consul 实现，提供最小数据面配置存储与监听能力。
 
 > 当前主线口径：在配置中心主线交付中，`go-consul/config` 对应 IDC / 裸机场景。它与 `go-k8s/config` 共享统一契约，但不是要求同一个运行时产物同时引入两套实现。
+>
+> 当前版本口径：本包已对齐 `github.com/fireflycore/go-micro@v1.3.6`，`Store` 只保留 `Get / Put / Delete`，监听能力由独立 `Watcher` 接口承载。
 
 ## 能力范围
 
-- `Store`：`Get/GetByQuery/Put/Delete`
-- 版本能力：`PutVersion/GetVersion/ListVersions`
-- 元信息能力：`GetMeta/PutMeta`
+- `Store`：`Get/Put/Delete`
 - `Watcher`：`Watch/Unwatch`（基于 Consul blocking query）
 - `loader` 辅助：`NewStoreFromLoader`、`LoadConfigFromStore`
 
@@ -19,11 +19,10 @@
 按单条配置键生成路径：
 
 - 当前配置：`/{namespace}/{tenant}/{env}/{app}/{group}/{name}/current`
-- 版本前缀：`/{namespace}/{tenant}/{env}/{app}/{group}/{name}/versions`
-- 版本快照：`/{namespace}/{tenant}/{env}/{app}/{group}/{name}/versions/{version}`
-- 元信息：`/{namespace}/{tenant}/{env}/{app}/{group}/{name}/meta`
 
 当 `tenant` 为空时会回退为 `default`。
+
+> 版本历史、发布流水和元信息游标不再保存在数据面，由控制面数据库统一承接。
 
 ## Loader 辅助
 

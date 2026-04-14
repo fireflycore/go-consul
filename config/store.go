@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -135,173 +133,6 @@ func (s *StoreInstance) Delete(ctx context.Context, key microConfig.Key) error {
 	return err
 }
 
-// PutVersion 写入版本快照并返回版本号。
-func (s *StoreInstance) PutVersion(ctx context.Context, key microConfig.Key, raw *microConfig.Raw) (string, error) {
-	// key 不合法时直接返回统一错误。
-	if err := validateKey(key); err != nil {
-		return "", err
-	}
-	// raw 为空时直接返回统一错误。
-	if raw == nil {
-		return "", microConfig.ErrInvalidRaw
-	}
-
-	// 若调用方未显式提供版本号，则按时间生成版本号。
-	version := raw.Version
-	if version == "" {
-		version = time.Now().UTC().Format("20060102150405.000000000")
-	}
-
-	// 构造写入版本快照的数据副本。
-	versioned := *raw
-	versioned.Version = version
-
-	// 编码版本内容。
-	val, err := s.encodeRaw(&versioned)
-	if err != nil {
-		return "", err
-	}
-
-	// 使用超时上下文执行写入。
-	reqCtx, cancel := s.withTimeout(ctx)
-	defer cancel()
-
-	// 写入 versions 路径。
-	_, err = s.client.KV().Put(&api.KVPair{
-		Key:   s.versionKey(key, version),
-		Value: val,
-	}, (&api.WriteOptions{}).WithContext(reqCtx))
-	if err != nil {
-		return "", err
-	}
-
-	// 返回最终版本号。
-	return version, nil
-}
-
-// GetVersion 读取指定版本快照。
-func (s *StoreInstance) GetVersion(ctx context.Context, key microConfig.Key, version string) (*microConfig.Raw, error) {
-	// key 不合法时直接返回统一错误。
-	if err := validateKey(key); err != nil {
-		return nil, err
-	}
-	// 版本号为空时返回统一错误。
-	if version == "" {
-		return nil, microConfig.ErrInvalidRaw
-	}
-
-	// 使用超时上下文执行读取。
-	reqCtx, cancel := s.withTimeout(ctx)
-	defer cancel()
-
-	// 读取指定版本路径。
-	res, _, err := s.client.KV().Get(s.versionKey(key, version), (&api.QueryOptions{}).WithContext(reqCtx))
-	if err != nil {
-		return nil, err
-	}
-	// 未命中时返回统一不存在错误。
-	if res == nil || len(res.Value) == 0 {
-		return nil, microConfig.ErrResourceNotFound
-	}
-
-	// 解析并返回配置内容。
-	return s.decodeRaw(res.Value)
-}
-
-// ListVersions 列出版本号列表。
-func (s *StoreInstance) ListVersions(ctx context.Context, key microConfig.Key, limit int) ([]string, error) {
-	// key 不合法时直接返回统一错误。
-	if err := validateKey(key); err != nil {
-		return nil, err
-	}
-
-	// 使用超时上下文执行读取。
-	reqCtx, cancel := s.withTimeout(ctx)
-	defer cancel()
-
-	// 读取版本前缀下的所有条目。
-	res, _, err := s.client.KV().List(s.versionPrefix(key), (&api.QueryOptions{}).WithContext(reqCtx))
-	if err != nil {
-		return nil, err
-	}
-
-	// 预分配版本号切片。
-	versions := make([]string, 0, len(res))
-	for _, item := range res {
-		// 从 key 尾部提取版本号。
-		version := path.Base(item.Key)
-		if version == "" {
-			continue
-		}
-		versions = append(versions, version)
-	}
-
-	// 按字典序倒排，确保新版本优先。
-	sort.Sort(sort.Reverse(sort.StringSlice(versions)))
-
-	// 按 limit 截断结果。
-	if limit > 0 && len(versions) > limit {
-		versions = versions[:limit]
-	}
-
-	// 返回版本号列表。
-	return versions, nil
-}
-
-// GetMeta 读取配置元信息。
-func (s *StoreInstance) GetMeta(ctx context.Context, key microConfig.Key) (*microConfig.Meta, error) {
-	// key 不合法时直接返回统一错误。
-	if err := validateKey(key); err != nil {
-		return nil, err
-	}
-
-	// 使用超时上下文执行读取。
-	reqCtx, cancel := s.withTimeout(ctx)
-	defer cancel()
-
-	// 读取 meta 路径。
-	res, _, err := s.client.KV().Get(s.metaKey(key), (&api.QueryOptions{}).WithContext(reqCtx))
-	if err != nil {
-		return nil, err
-	}
-	// 未命中时返回统一不存在错误。
-	if res == nil || len(res.Value) == 0 {
-		return nil, microConfig.ErrResourceNotFound
-	}
-
-	// 解析并返回元信息。
-	return s.decodeMeta(res.Value)
-}
-
-// PutMeta 写入配置元信息。
-func (s *StoreInstance) PutMeta(ctx context.Context, key microConfig.Key, meta *microConfig.Meta) error {
-	// key 不合法时直接返回统一错误。
-	if err := validateKey(key); err != nil {
-		return err
-	}
-	// meta 为空时返回统一错误。
-	if meta == nil {
-		return microConfig.ErrInvalidRaw
-	}
-
-	// 编码元信息。
-	val, err := s.encodeMeta(meta)
-	if err != nil {
-		return err
-	}
-
-	// 使用超时上下文执行写入。
-	reqCtx, cancel := s.withTimeout(ctx)
-	defer cancel()
-
-	// 写入 meta 路径。
-	_, err = s.client.KV().Put(&api.KVPair{
-		Key:   s.metaKey(key),
-		Value: val,
-	}, (&api.WriteOptions{}).WithContext(reqCtx))
-	return err
-}
-
 // withTimeout 基于 options.Timeout 包装上下文。
 func (s *StoreInstance) withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
 	// 空上下文回退为 Background。
@@ -349,25 +180,6 @@ func (s *StoreInstance) currentKey(key microConfig.Key) string {
 	)
 }
 
-// versionPrefix 生成版本路径前缀。
-func (s *StoreInstance) versionPrefix(key microConfig.Key) string {
-	return fmt.Sprintf("%s/%s/%s/%s/%s/%s/versions",
-		s.namespace(), normalizeTenant(key.TenantId), key.Env, key.AppId, key.Group, key.Name,
-	)
-}
-
-// versionKey 生成指定版本路径。
-func (s *StoreInstance) versionKey(key microConfig.Key, version string) string {
-	return fmt.Sprintf("%s/%s", s.versionPrefix(key), version)
-}
-
-// metaKey 生成元信息路径。
-func (s *StoreInstance) metaKey(key microConfig.Key) string {
-	return fmt.Sprintf("%s/%s/%s/%s/%s/%s/meta",
-		s.namespace(), normalizeTenant(key.TenantId), key.Env, key.AppId, key.Group, key.Name,
-	)
-}
-
 // encodeRaw 对配置内容做编码。
 func (s *StoreInstance) encodeRaw(raw *microConfig.Raw) ([]byte, error) {
 	// 优先使用调用方注入的编解码器。
@@ -382,34 +194,6 @@ func (s *StoreInstance) encodeRaw(raw *microConfig.Raw) ([]byte, error) {
 func (s *StoreInstance) decodeRaw(data []byte) (*microConfig.Raw, error) {
 	// 准备承载结果对象。
 	raw := new(microConfig.Raw)
-	// 优先使用调用方注入的编解码器。
-	if s.options != nil && s.options.Codec != nil {
-		if err := s.options.Codec.Unmarshal(data, raw); err != nil {
-			return nil, err
-		}
-		return raw, nil
-	}
-	// 默认使用 JSON 解码。
-	if err := json.Unmarshal(data, raw); err != nil {
-		return nil, err
-	}
-	return raw, nil
-}
-
-// encodeMeta 对元信息做编码。
-func (s *StoreInstance) encodeMeta(meta *microConfig.Meta) ([]byte, error) {
-	// 优先使用调用方注入的编解码器。
-	if s.options != nil && s.options.Codec != nil {
-		return s.options.Codec.Marshal(meta)
-	}
-	// 默认使用 JSON 编码。
-	return json.Marshal(meta)
-}
-
-// decodeMeta 对元信息做解码。
-func (s *StoreInstance) decodeMeta(data []byte) (*microConfig.Meta, error) {
-	// 准备承载结果对象。
-	raw := new(microConfig.Meta)
 	// 优先使用调用方注入的编解码器。
 	if s.options != nil && s.options.Codec != nil {
 		if err := s.options.Codec.Unmarshal(data, raw); err != nil {
