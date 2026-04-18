@@ -33,12 +33,11 @@ func New(c *Config) (*api.Client, error) {
 	}
 
 	// 当 TLS 显式开启时，注入 TLS 参数。
-	if c.TLS != nil && c.TLS.Enable {
+	if c.Tls != nil {
 		cfg.TLSConfig = api.TLSConfig{
-			CAFile:             c.TLS.CaFile,
-			CertFile:           c.TLS.CertFile,
-			KeyFile:            c.TLS.KeyFile,
-			InsecureSkipVerify: c.TLS.InsecureSkipVerify,
+			CAFile:   c.Tls.CaCert,
+			CertFile: c.Tls.ClientCert,
+			KeyFile:  c.Tls.ClientCertKey,
 		}
 	}
 
