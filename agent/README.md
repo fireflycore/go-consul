@@ -82,7 +82,7 @@
 也就是说：
 
 - 裸机走 `go-consul/agent`
-- K8s 走 `k8s + mesh + invocation`
+- K8s 走 `k8s + mesh + go-micro/invocation`
 
 ## 后续演进
 
