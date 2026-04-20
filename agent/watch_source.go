@@ -61,7 +61,7 @@ func (s *WatchSource) Subscribe(ctx context.Context) (<-chan ConnectionEvent, er
 					}
 				}
 			}
-			// 在下一轮重连前等待固定退避，避免打满本地 agent。
+			// 在后续一次重连前等待固定退避，避免打满本地 agent。
 			select {
 			case <-ctx.Done():
 				return
