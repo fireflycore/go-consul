@@ -3,11 +3,30 @@ package agent
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
 	"time"
 )
+
+// watchEventPayload 描述 sidecar-agent `/watch` 输出的结构化 SSE 载荷。
+type watchEventPayload struct {
+	// Event 表示服务端事件名，例如 connected、heartbeat。
+	Event string `json:"event"`
+	// Message 表示简短说明文本。
+	Message string `json:"message,omitempty"`
+	// Service 表示发出事件的服务名。
+	Service string `json:"service,omitempty"`
+	// Status 表示 sidecar 当前运行态摘要。
+	Status string `json:"status,omitempty"`
+	// LifecycleState 表示 sidecar 当前生命周期阶段。
+	LifecycleState string `json:"lifecycle_state,omitempty"`
+	// Ready 表示 sidecar 当前主链是否 ready。
+	Ready *bool `json:"ready,omitempty"`
+	// GeneratedAt 表示服务端生成事件的时间。
+	GeneratedAt *time.Time `json:"generated_at,omitempty"`
+}
 
 // WatchSource 基于 sidecar-agent 的 `/watch` 长连接接口输出连接事件。
 type WatchSource struct {
@@ -57,7 +76,7 @@ func (s *WatchSource) Subscribe(ctx context.Context) (<-chan ConnectionEvent, er
 					select {
 					case <-ctx.Done():
 						return
-					case events <- ConnectionEvent{Connected: false, Err: err}:
+					case events <- ConnectionEvent{Type: ConnectionEventTypeDisconnected, Connected: false, Err: err}:
 					}
 				}
 			}
@@ -94,21 +113,105 @@ func (s *WatchSource) watchOnce(ctx context.Context, events chan<- ConnectionEve
 		return errors.New("watch endpoint returned non-200 status")
 	}
 	// 连接建立成功后，先发送一条 connected 事件。
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case events <- ConnectionEvent{Connected: true}:
-	}
-	// 使用 scanner 持续读取服务端心跳，直到 EOF 或上下文取消。
+	// 使用 scanner 持续读取服务端 SSE 帧，直到 EOF 或上下文取消。
 	scanner := bufio.NewScanner(response.Body)
+	currentEventName := ""
+	currentEventID := ""
+	dataLines := make([]string, 0, 1)
 	for scanner.Scan() {
+		line := scanner.Text()
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+		// 空行表示当前 SSE 帧结束，尝试把累计内容派发成连接事件。
+		if line == "" {
+			if err := emitWatchEvent(ctx, events, currentEventName, currentEventID, dataLines); err != nil {
+				return err
+			}
+			currentEventName = ""
+			currentEventID = ""
+			dataLines = dataLines[:0]
+			continue
+		}
+		// 注释行只用于保活，不单独派发事件。
+		if strings.HasPrefix(line, ":") {
+			continue
+		}
+		field, value, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
+		}
+		value = strings.TrimLeft(value, " ")
+		switch strings.TrimSpace(field) {
+		case "event":
+			currentEventName = value
+		case "data":
+			dataLines = append(dataLines, value)
+		case "id":
+			currentEventID = value
+		}
+	}
+	// 如果流在最后一帧后没有额外空行，也尽量把最后一帧派发出去。
+	if err := emitWatchEvent(ctx, events, currentEventName, currentEventID, dataLines); err != nil {
+		return err
 	}
 	// 优先返回 scanner 的读取错误，否则返回 EOF 触发上层重连。
 	if err := scanner.Err(); err != nil {
 		return err
 	}
 	return errors.New("watch stream closed")
+}
+
+// emitWatchEvent 把一帧 SSE 内容转换成业务侧连接事件。
+func emitWatchEvent(ctx context.Context, events chan<- ConnectionEvent, eventName, eventId string, dataLines []string) error {
+	// 空帧直接忽略，避免纯 heartbeat 注释或空白块触发无意义事件。
+	if strings.TrimSpace(eventName) == "" && len(dataLines) == 0 {
+		return nil
+	}
+	// 默认按 SSE 约定回退到 message；当前协议未使用时仍可兼容旧服务端。
+	if strings.TrimSpace(eventName) == "" {
+		eventName = "message"
+	}
+	payloadRaw := strings.Join(dataLines, "\n")
+	event := ConnectionEvent{
+		Type:    strings.TrimSpace(eventName),
+		EventId: strings.TrimSpace(eventId),
+	}
+	// 优先按当前结构化 JSON 协议解析；解析失败时继续走兼容逻辑，不直接报错。
+	if strings.TrimSpace(payloadRaw) != "" {
+		var payload watchEventPayload
+		if err := json.Unmarshal([]byte(payloadRaw), &payload); err == nil {
+			event.Message = payload.Message
+			event.Service = payload.Service
+			event.Status = payload.Status
+			event.LifecycleState = payload.LifecycleState
+			event.Ready = payload.Ready
+			event.GeneratedAt = payload.GeneratedAt
+			if strings.TrimSpace(payload.Event) != "" {
+				event.Type = strings.TrimSpace(payload.Event)
+			}
+		} else {
+			event.Message = strings.TrimSpace(payloadRaw)
+		}
+	}
+	switch event.Type {
+	case ConnectionEventTypeConnected:
+		event.Connected = true
+	case ConnectionEventTypeHeartbeat:
+		// heartbeat 只作为活性事件，不改写 connected 语义。
+	default:
+		// 未识别事件类型时保持向后兼容：老版本 `connected` 帧仍已在上面识别，其余帧默认忽略。
+		if event.Type == "message" && strings.EqualFold(strings.TrimSpace(event.Message), "ok") {
+			event.Type = ConnectionEventTypeConnected
+			event.Connected = true
+		} else {
+			return nil
+		}
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case events <- event:
+		return nil
+	}
 }

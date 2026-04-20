@@ -38,7 +38,7 @@ func TestRunnerReplaysRegisterOnReconnect(t *testing.T) {
 	}
 	// 创建一个带缓冲的事件源，依次投递连接、断开、重连事件。
 	source := &fakeEventSource{
-		events: make(chan ConnectionEvent, 3),
+		events: make(chan ConnectionEvent, 4),
 	}
 	runner, err := NewRunner(source, controller, nil)
 	if err != nil {
@@ -51,10 +51,11 @@ func TestRunnerReplaysRegisterOnReconnect(t *testing.T) {
 	go func() {
 		done <- runner.Run(ctx)
 	}()
-	// 依次模拟首次连接、连接断开、连接恢复。
-	source.events <- ConnectionEvent{Connected: true}
-	source.events <- ConnectionEvent{Connected: false}
-	source.events <- ConnectionEvent{Connected: true}
+	// 依次模拟首次连接、heartbeat、连接断开、连接恢复。
+	source.events <- ConnectionEvent{Type: ConnectionEventTypeConnected, Connected: true}
+	source.events <- ConnectionEvent{Type: ConnectionEventTypeHeartbeat}
+	source.events <- ConnectionEvent{Type: ConnectionEventTypeDisconnected, Connected: false}
+	source.events <- ConnectionEvent{Type: ConnectionEventTypeConnected, Connected: true}
 	time.Sleep(50 * time.Millisecond)
 	cancel()
 	runErr := <-done
@@ -102,7 +103,7 @@ func TestRunnerMarksDisconnectedWhenRegisterFails(t *testing.T) {
 		done <- runner.Run(ctx)
 	}()
 	// 连接建立后 register 会失败，Runner 应把状态回退到 disconnected。
-	source.events <- ConnectionEvent{Connected: true}
+	source.events <- ConnectionEvent{Type: ConnectionEventTypeConnected, Connected: true}
 	time.Sleep(50 * time.Millisecond)
 	cancel()
 	<-done
@@ -112,6 +113,45 @@ func TestRunnerMarksDisconnectedWhenRegisterFails(t *testing.T) {
 	}
 	if got, want := errorCount, 1; got != want {
 		t.Fatalf("unexpected error callback count: got=%d want=%d", got, want)
+	}
+}
+
+// TestRunnerIgnoresHeartbeatEvents 验证 heartbeat 不会触发 register 重放或状态回退。
+func TestRunnerIgnoresHeartbeatEvents(t *testing.T) {
+	client := &fakeClient{}
+	controller, err := NewController(client, fakeProvider{
+		request: RegisterRequest{
+			Name: "catalog",
+			Port: 7070,
+		},
+	})
+	if err != nil {
+		t.Fatalf("new controller failed: %v", err)
+	}
+	source := &fakeEventSource{
+		events: make(chan ConnectionEvent, 2),
+	}
+	runner, err := NewRunner(source, controller, nil)
+	if err != nil {
+		t.Fatalf("new runner failed: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- runner.Run(ctx)
+	}()
+	source.events <- ConnectionEvent{Type: ConnectionEventTypeConnected, Connected: true}
+	source.events <- ConnectionEvent{Type: ConnectionEventTypeHeartbeat}
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	<-done
+	if got, want := len(client.registerCalls), 1; got != want {
+		t.Fatalf("unexpected register count after heartbeat: got=%d want=%d", got, want)
+	}
+	status := controller.Status()
+	if !status.Connected || !status.Registered {
+		t.Fatalf("expected controller to remain connected after heartbeat: %+v", status)
 	}
 }
 

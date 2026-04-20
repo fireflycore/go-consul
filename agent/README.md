@@ -13,6 +13,7 @@
 - 持有业务服务的标准注册描述
 - 对本机 `sidecar-agent` 发起 `register`
 - 在本地连接恢复后自动重放注册
+- 兼容结构化 SSE `connected / heartbeat` 事件并在连接断开后自动重连
 - 对外提供统一的 `drain` / `deregister` 入口
 
 ## 设计目标
