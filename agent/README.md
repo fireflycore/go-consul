@@ -20,12 +20,12 @@
 - 不让业务服务自己轮询 agent
 - 不让业务服务直接处理 agent 重启逻辑
 - 把“注册描述缓存 + 连接恢复后重放”收敛到核心库
-- 给后续 v2.2 的 agent lifecycle 机制提供统一接入点
+- 给 v2.2 的 agent lifecycle 机制提供统一接入点
 - 把业务服务和 `consul / envoy` 的耦合统一收口到 `sidecar-agent`
 
 ## 当前范围
 
-当前仅提供通用模型、契约与控制器骨架：
+当前已经提供可直接接入的通用模型、契约与控制器实现：
 
 - `RegisterRequest`
 - `DrainRequest`
@@ -49,8 +49,8 @@
 
 暂不包含：
 
-- 与业务框架自动启动集成的完整实现
-- 与 sidecar-agent 的 lease / stream 协议实现
+- 与业务框架自动启动集成的更深封装
+- 比当前 `watch` 机制更强约束的 lease / stream 协议
 
 ## 当前边界
 
