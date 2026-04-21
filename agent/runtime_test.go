@@ -70,6 +70,15 @@ func TestRunnerReplaysRegisterOnReconnect(t *testing.T) {
 	if !status.Connected || !status.Registered {
 		t.Fatal("expected controller to be connected and registered after reconnect")
 	}
+	if got, want := status.DisconnectCount, 1; got != want {
+		t.Fatalf("unexpected disconnect count: got=%d want=%d", got, want)
+	}
+	if got, want := status.RegisterReplayCount, 2; got != want {
+		t.Fatalf("unexpected replay count: got=%d want=%d", got, want)
+	}
+	if got, want := status.LastEventType, ConnectionEventTypeConnected; got != want {
+		t.Fatalf("unexpected last event type: got=%s want=%s", got, want)
+	}
 }
 
 // TestRunnerMarksDisconnectedWhenRegisterFails 验证 register 失败时会把状态回退为断连。
@@ -112,6 +121,15 @@ func TestRunnerMarksDisconnectedWhenRegisterFails(t *testing.T) {
 	status := controller.Status()
 	if status.Connected || status.Registered {
 		t.Fatal("expected controller to be disconnected after register failure")
+	}
+	if got, want := status.RegisterReplayFailureCount, 1; got != want {
+		t.Fatalf("unexpected replay failure count: got=%d want=%d", got, want)
+	}
+	if got, want := status.LastErrorKind, "register_replay"; got != want {
+		t.Fatalf("unexpected last error kind: got=%s want=%s", got, want)
+	}
+	if status.LastError == "" {
+		t.Fatal("expected last error text to be recorded")
 	}
 	if got, want := errorCount, 1; got != want {
 		t.Fatalf("unexpected error callback count: got=%d want=%d", got, want)
@@ -161,6 +179,9 @@ func TestRunnerIgnoresHeartbeatEvents(t *testing.T) {
 	status := controller.Status()
 	if !status.Connected || !status.Registered {
 		t.Fatalf("expected controller to remain connected after heartbeat: %+v", status)
+	}
+	if got, want := status.LastEventType, ConnectionEventTypeHeartbeat; got != want {
+		t.Fatalf("unexpected last event type after heartbeat: got=%s want=%s", got, want)
 	}
 }
 

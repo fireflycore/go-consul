@@ -17,6 +17,7 @@
 - 把非 200、流关闭与结构化坏帧收敛成可分类错误
 - 把 register replay 失败包装成带服务名与端口的可分类错误
 - 把 lifecycle、serve、shutdown 与 agent shutdown 失败包装成可分类阶段错误
+- 记录最近一次 watch 事件、断连次数、重放次数与最近错误，便于直接排障恢复链路
 - 对外提供统一的 `drain` / `deregister` 入口
 
 ## 设计目标
@@ -50,10 +51,10 @@
 - `NewServiceLifecycleFromGRPC(...)`
 - `ServiceLifecycle`
 - `ManagedServer`
+- `LifecycleHooks`
 
 暂不包含：
 
-- 与业务框架自动启动集成的更深封装
 - 比当前 `watch` 机制更强约束的 lease / stream 协议
 
 ## 当前边界
@@ -95,16 +96,16 @@
 - 更强约束的本地长连接协议
 - 连接状态订阅
 - 注册重放退避策略
-- 与 go-micro 启动钩子集成
+- 与具体业务框架实例的深度封装
 
 ## 已冻结的下一批事项
 
 为避免后续上下文丢失，当前已明确下一批优先事项如下：
 
 1. 补 `watch` 非 200、坏帧、空帧、EOF 与退避重连测试。
-2. 补自动重放失败时的错误分类与更清晰日志。
-3. 继续收口 `LocalRuntime / ServiceLifecycle / ManagedServer` 与业务启动钩子的集成边界。
-4. 保持 `connected / heartbeat` 新协议与旧版兼容帧的双向兼容测试。
+1. 补自动重放失败时更清晰日志与调试信息。
+2. 继续收口 `LocalRuntime / ServiceLifecycle / ManagedServer / LifecycleHooks` 与业务启动钩子的集成边界。
+3. 保持 `connected / heartbeat` 新协议与旧版兼容帧的双向兼容测试。
 
 ## 建议接入方式
 
@@ -179,3 +180,63 @@ go func() {
 - 业务服务自己的 `serve + shutdown`
 
 统一收敛到一个 `Run(ctx)` 入口。
+
+如果你的宿主框架本身已经有统一的启动/停止钩子，也可以直接使用：
+
+- `LifecycleHooks`
+
+它适合挂到类似 `OnStart(ctx)` / `OnStop(ctx)` 的宿主生命周期中，把：
+
+- 后台 `watch` 订阅与自动重放 register
+- 关闭阶段的 `drain + deregister`
+- 异步运行错误回调
+
+统一收口成更轻量的钩子式接入。
+
+```go
+lifecycle, err := agent.NewServiceLifecycleFromGRPC(agent.GRPCDescriptorOptions{
+  ServiceDesc: serviceDesc,
+  Options:     serviceOptions,
+}, agent.DefaultLocalRuntimeOptions(""), agent.LifecycleOptions{
+  GracePeriod: "20s",
+})
+if err != nil {
+  return err
+}
+
+hooks, err := agent.NewLifecycleHooks(agent.LifecycleHookOptions{
+  Lifecycle: lifecycle,
+  OnError: func(ctx context.Context, err error) {
+    logger.Error(err)
+  },
+})
+if err != nil {
+  return err
+}
+
+if err := hooks.OnStart(ctx); err != nil {
+  return err
+}
+defer func() {
+  _ = hooks.OnStop(context.Background())
+}()
+```
+
+## 运行时可观测
+
+`Controller` / `LocalRuntime` / `ServiceLifecycle` 当前会维护一份统一状态快照，至少包含：
+
+- 当前是否 connected / registered
+- 最近一次成功注册的服务名与端口
+- 最近一次 watch 事件类型、事件 ID 与事件时间
+- 最近一次连接与断连时间
+- 累计断连次数、register 重放成功次数、重放失败次数
+- 最近一次错误分类、错误文本与错误时间
+
+当前错误分类至少覆盖：
+
+- `watch_http_status`
+- `watch_stream_closed`
+- `watch_event_parse`
+- `register_replay`
+- `runtime_error`

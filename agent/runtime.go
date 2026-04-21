@@ -92,6 +92,7 @@ func (r *Runner) Run(ctx context.Context) error {
 			if !ok {
 				return nil
 			}
+			r.controller.ObserveEvent(event)
 			// heartbeat 只表示连接仍存活，不应触发 register 重放或状态回退。
 			if event.Type == ConnectionEventTypeHeartbeat {
 				continue
@@ -99,6 +100,9 @@ func (r *Runner) Run(ctx context.Context) error {
 			// 连接断开时先更新控制器状态，再透传错误上下文。
 			if event.Type == ConnectionEventTypeDisconnected || !event.Connected {
 				r.controller.OnDisconnected()
+				if event.Err != nil {
+					r.controller.RecordError(event.Err)
+				}
 				if event.Err != nil && r.onError != nil {
 					r.onError(ctx, event.Err)
 				}
@@ -109,6 +113,7 @@ func (r *Runner) Run(ctx context.Context) error {
 				if err := r.controller.OnConnected(ctx); err != nil {
 					// 重放失败时，把当前状态回退为 disconnected，避免误认为已接管成功。
 					r.controller.OnDisconnected()
+					r.controller.RecordError(err)
 					if r.onError != nil {
 						r.onError(ctx, err)
 					}

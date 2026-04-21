@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -180,6 +181,88 @@ func TestWatchSourceSubscribeEmitsDisconnectedOnHTTPStatusError(t *testing.T) {
 	var statusErr *WatchHTTPStatusError
 	if !errors.As(event.Err, &statusErr) {
 		t.Fatalf("expected WatchHTTPStatusError in event error, got: %v", event.Err)
+	}
+}
+
+// TestWatchSourceSubscribeReconnectsAfterBackoff 验证订阅循环会在退避后发起下一次重连。
+func TestWatchSourceSubscribeReconnectsAfterBackoff(t *testing.T) {
+	var callCount atomic.Int32
+	requestTimes := make(chan time.Time, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		current := callCount.Add(1)
+		requestTimes <- time.Now()
+		if current == 1 {
+			http.Error(writer, "temporarily unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		writer.Header().Set("Content-Type", "text/event-stream")
+		flusher, ok := writer.(http.Flusher)
+		if !ok {
+			t.Fatal("expected flusher")
+		}
+		_, _ = writer.Write([]byte("event: connected\n"))
+		_, _ = writer.Write([]byte("data: ok\n\n"))
+		flusher.Flush()
+	}))
+	defer server.Close()
+
+	reconnectInterval := 40 * time.Millisecond
+	source := NewWatchSource(server.URL, reconnectInterval)
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	events, err := source.Subscribe(ctx)
+	if err != nil {
+		t.Fatalf("subscribe failed: %v", err)
+	}
+
+	first := <-events
+	if first.Type != ConnectionEventTypeDisconnected {
+		t.Fatalf("expected first event to be disconnected, got: %+v", first)
+	}
+	second := <-events
+	if second.Type != ConnectionEventTypeConnected {
+		t.Fatalf("expected second event to be connected, got: %+v", second)
+	}
+
+	firstRequestAt := <-requestTimes
+	secondRequestAt := <-requestTimes
+	if secondRequestAt.Sub(firstRequestAt) < reconnectInterval {
+		t.Fatalf("expected reconnect backoff >= %s, got %s", reconnectInterval, secondRequestAt.Sub(firstRequestAt))
+	}
+}
+
+// TestWatchSourceSubscribeEmitsRepeatedDisconnectedEvents 验证重复失败时会持续发出断连事件。
+func TestWatchSourceSubscribeEmitsRepeatedDisconnectedEvents(t *testing.T) {
+	var callCount atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		callCount.Add(1)
+		http.Error(writer, "bad gateway", http.StatusBadGateway)
+	}))
+	defer server.Close()
+
+	source := NewWatchSource(server.URL, 10*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	events, err := source.Subscribe(ctx)
+	if err != nil {
+		t.Fatalf("subscribe failed: %v", err)
+	}
+
+	disconnectedCount := 0
+	deadline := time.After(120 * time.Millisecond)
+	for disconnectedCount < 2 {
+		select {
+		case event := <-events:
+			if event.Type != ConnectionEventTypeDisconnected {
+				t.Fatalf("expected disconnected event, got: %+v", event)
+			}
+			disconnectedCount++
+		case <-deadline:
+			t.Fatalf("expected repeated disconnected events, got=%d", disconnectedCount)
+		}
+	}
+	if got := callCount.Load(); got < 2 {
+		t.Fatalf("expected at least two subscribe attempts, got=%d", got)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 )
 
 // DescriptorProvider 抽象业务服务注册描述的构造能力。
@@ -60,26 +61,36 @@ func (c *Controller) OnConnected(ctx context.Context) error {
 	// 先从 provider 构造一份最新注册描述。
 	request, err := c.provider.BuildRegisterRequest(ctx)
 	if err != nil {
-		return fmt.Errorf("build register request failed: %w", err)
+		wrappedErr := fmt.Errorf("build register request failed: %w", err)
+		c.RecordError(wrappedErr)
+		return wrappedErr
 	}
 	// 再通过 client 把注册请求发给本机 sidecar-agent。
 	if err := c.client.Register(ctx, request); err != nil {
-		return &RegisterReplayError{
+		replayErr := &RegisterReplayError{
 			ServiceName: request.Name,
 			ServicePort: request.Port,
 			Err:         err,
 		}
+		c.mu.Lock()
+		c.status.RegisterReplayFailureCount++
+		c.status.LastServiceName = request.Name
+		c.status.LastServicePort = request.Port
+		c.recordErrorLocked(replayErr, time.Now().UTC())
+		c.mu.Unlock()
+		return replayErr
 	}
 	// 注册成功后把最新请求与状态写回控制器缓存。
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	now := time.Now().UTC()
 	c.last = &request
-	c.status = Status{
-		Connected:       true,
-		Registered:      true,
-		LastServiceName: request.Name,
-		LastServicePort: request.Port,
-	}
+	c.status.Connected = true
+	c.status.Registered = true
+	c.status.LastServiceName = request.Name
+	c.status.LastServicePort = request.Port
+	c.status.LastConnectedAt = formatStatusTime(now)
+	c.status.RegisterReplayCount++
 	return nil
 }
 
@@ -88,8 +99,11 @@ func (c *Controller) OnDisconnected() {
 	// 更新状态时使用写锁，避免和读取状态并发冲突。
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	now := time.Now().UTC()
 	c.status.Connected = false
 	c.status.Registered = false
+	c.status.DisconnectCount++
+	c.status.LastDisconnectedAt = formatStatusTime(now)
 }
 
 // Drain 使用最近一次成功注册的服务描述发起摘流。
@@ -133,4 +147,68 @@ func (c *Controller) Status() Status {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.status
+}
+
+// ObserveEvent 记录最近一次收到的 watch 事件，供业务侧调试恢复链路使用。
+func (c *Controller) ObserveEvent(event ConnectionEvent) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	observedAt := time.Now().UTC()
+	if event.GeneratedAt != nil {
+		observedAt = event.GeneratedAt.UTC()
+	}
+	c.status.LastEventType = event.Type
+	c.status.LastEventId = event.EventId
+	c.status.LastEventAt = formatStatusTime(observedAt)
+	if event.Type == ConnectionEventTypeConnected || event.Connected {
+		c.status.LastConnectedAt = formatStatusTime(observedAt)
+	}
+	if event.Type == ConnectionEventTypeDisconnected || !event.Connected {
+		c.status.LastDisconnectedAt = formatStatusTime(observedAt)
+	}
+}
+
+// RecordError 把最近一次运行错误写入状态快照。
+func (c *Controller) RecordError(err error) {
+	if err == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.recordErrorLocked(err, time.Now().UTC())
+}
+
+func (c *Controller) recordErrorLocked(err error, observedAt time.Time) {
+	c.status.LastErrorKind = classifyStatusError(err)
+	c.status.LastError = err.Error()
+	c.status.LastErrorAt = formatStatusTime(observedAt)
+}
+
+func classifyStatusError(err error) string {
+	switch {
+	case err == nil:
+		return ""
+	case errors.Is(err, ErrWatchStreamClosed):
+		return "watch_stream_closed"
+	}
+	var statusErr *WatchHTTPStatusError
+	if errors.As(err, &statusErr) {
+		return "watch_http_status"
+	}
+	var parseErr *WatchEventParseError
+	if errors.As(err, &parseErr) {
+		return "watch_event_parse"
+	}
+	var replayErr *RegisterReplayError
+	if errors.As(err, &replayErr) {
+		return "register_replay"
+	}
+	return "runtime_error"
+}
+
+func formatStatusTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339Nano)
 }
