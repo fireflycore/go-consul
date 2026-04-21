@@ -240,3 +240,10 @@ defer func() {
 - `watch_event_parse`
 - `register_replay`
 - `runtime_error`
+
+另外，本轮新增的恢复链路实现与测试已经补齐了较细粒度的中文内联注释，重点覆盖：
+
+- `Controller` 中的事件观测、错误归类、重放成功/失败状态写入
+- `Runner` 中的 heartbeat、断连、重连重放处理分支
+- `LifecycleHooks` 的宿主钩子接入和异步错误透传逻辑
+- `watch` 退避重连、重复失败与状态断言测试

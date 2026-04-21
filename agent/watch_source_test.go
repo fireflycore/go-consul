@@ -186,46 +186,62 @@ func TestWatchSourceSubscribeEmitsDisconnectedOnHTTPStatusError(t *testing.T) {
 
 // TestWatchSourceSubscribeReconnectsAfterBackoff 验证订阅循环会在退避后发起下一次重连。
 func TestWatchSourceSubscribeReconnectsAfterBackoff(t *testing.T) {
+	// 统计服务端被访问次数，用于确认客户端确实发起了重连。
 	var callCount atomic.Int32
+	// 记录每次请求到达时间，用于断言是否经过了退避间隔。
 	requestTimes := make(chan time.Time, 2)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		// 为每次 watch 请求分配顺序号。
 		current := callCount.Add(1)
+		// 把请求到达时间写入测试通道，供后续比较退避间隔。
 		requestTimes <- time.Now()
 		if current == 1 {
+			// 第一次请求主动返回 503，制造一次需要退避重连的失败。
 			http.Error(writer, "temporarily unavailable", http.StatusServiceUnavailable)
 			return
 		}
+		// 第二次请求开始恢复正常 SSE 输出，模拟重连成功。
 		writer.Header().Set("Content-Type", "text/event-stream")
 		flusher, ok := writer.(http.Flusher)
 		if !ok {
 			t.Fatal("expected flusher")
 		}
+		// 输出最小 connected 事件，驱动客户端产生恢复成功事件。
 		_, _ = writer.Write([]byte("event: connected\n"))
 		_, _ = writer.Write([]byte("data: ok\n\n"))
 		flusher.Flush()
 	}))
 	defer server.Close()
 
+	// 显式指定一个较容易观测的退避间隔。
 	reconnectInterval := 40 * time.Millisecond
+	// 创建待测 watch 事件源。
 	source := NewWatchSource(server.URL, reconnectInterval)
+	// 给整个订阅流程一个总超时，避免测试阻塞。
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
+	// 开始订阅事件流。
 	events, err := source.Subscribe(ctx)
 	if err != nil {
 		t.Fatalf("subscribe failed: %v", err)
 	}
 
+	// 首条事件应来自第一次失败后的 disconnected 通知。
 	first := <-events
 	if first.Type != ConnectionEventTypeDisconnected {
 		t.Fatalf("expected first event to be disconnected, got: %+v", first)
 	}
+	// 第二条事件应来自退避后重连成功的 connected 通知。
 	second := <-events
 	if second.Type != ConnectionEventTypeConnected {
 		t.Fatalf("expected second event to be connected, got: %+v", second)
 	}
 
+	// 读取第一次失败请求的到达时间。
 	firstRequestAt := <-requestTimes
+	// 读取第二次重连请求的到达时间。
 	secondRequestAt := <-requestTimes
+	// 断言两次请求之间至少经历了设定的退避时间。
 	if secondRequestAt.Sub(firstRequestAt) < reconnectInterval {
 		t.Fatalf("expected reconnect backoff >= %s, got %s", reconnectInterval, secondRequestAt.Sub(firstRequestAt))
 	}
@@ -233,34 +249,45 @@ func TestWatchSourceSubscribeReconnectsAfterBackoff(t *testing.T) {
 
 // TestWatchSourceSubscribeEmitsRepeatedDisconnectedEvents 验证重复失败时会持续发出断连事件。
 func TestWatchSourceSubscribeEmitsRepeatedDisconnectedEvents(t *testing.T) {
+	// 统计失败请求次数，用于确认客户端不是只尝试一次。
 	var callCount atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		// 每次请求都计数，便于最后断言重复失败期间确实发生了多次重试。
 		callCount.Add(1)
+		// 持续返回 502，制造重复失败场景。
 		http.Error(writer, "bad gateway", http.StatusBadGateway)
 	}))
 	defer server.Close()
 
+	// 使用较短重连间隔，加快重复失败场景下的测试收敛速度。
 	source := NewWatchSource(server.URL, 10*time.Millisecond)
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
+	// 开始订阅事件流。
 	events, err := source.Subscribe(ctx)
 	if err != nil {
 		t.Fatalf("subscribe failed: %v", err)
 	}
 
+	// 统计收到的 disconnected 事件次数。
 	disconnectedCount := 0
+	// 设置一个局部超时，确保测试能及时失败而不是无限等待。
 	deadline := time.After(120 * time.Millisecond)
 	for disconnectedCount < 2 {
 		select {
 		case event := <-events:
+			// 连续失败期间收到的事件都应为 disconnected。
 			if event.Type != ConnectionEventTypeDisconnected {
 				t.Fatalf("expected disconnected event, got: %+v", event)
 			}
+			// 每收到一次断连事件就累加一次计数。
 			disconnectedCount++
 		case <-deadline:
+			// 若迟迟收不到第二次断连事件，说明重复失败重试链路存在缺口。
 			t.Fatalf("expected repeated disconnected events, got=%d", disconnectedCount)
 		}
 	}
+	// 服务端被访问次数至少应达到两次，证明客户端确实执行了重复重连尝试。
 	if got := callCount.Load(); got < 2 {
 		t.Fatalf("expected at least two subscribe attempts, got=%d", got)
 	}

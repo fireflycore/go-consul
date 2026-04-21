@@ -90,22 +90,29 @@ func (r *Runner) Run(ctx context.Context) error {
 			return ctx.Err()
 		case event, ok := <-events:
 			if !ok {
+				// 事件通道关闭表示 watch 源已结束，当前运行循环可以自然退出。
 				return nil
 			}
+			// 无论事件类型如何，先把最近一次事件写入统一状态快照。
 			r.controller.ObserveEvent(event)
 			// heartbeat 只表示连接仍存活，不应触发 register 重放或状态回退。
 			if event.Type == ConnectionEventTypeHeartbeat {
+				// 对 heartbeat 仅更新观测状态，不额外执行业务动作。
 				continue
 			}
 			// 连接断开时先更新控制器状态，再透传错误上下文。
 			if event.Type == ConnectionEventTypeDisconnected || !event.Connected {
+				// 先把业务侧状态回退为 disconnected。
 				r.controller.OnDisconnected()
 				if event.Err != nil {
+					// 如果断连事件携带错误，则一并写入最近错误快照。
 					r.controller.RecordError(event.Err)
 				}
 				if event.Err != nil && r.onError != nil {
+					// 继续把错误回调给上层，便于业务侧接入日志或告警。
 					r.onError(ctx, event.Err)
 				}
+				// 当前事件处理完成，等待后续重连事件。
 				continue
 			}
 			// 连接建立或恢复时，立即重放 register 以重新接管业务实例。
@@ -113,8 +120,10 @@ func (r *Runner) Run(ctx context.Context) error {
 				if err := r.controller.OnConnected(ctx); err != nil {
 					// 重放失败时，把当前状态回退为 disconnected，避免误认为已接管成功。
 					r.controller.OnDisconnected()
+					// 同时把重放失败错误写入最近错误快照。
 					r.controller.RecordError(err)
 					if r.onError != nil {
+						// 把带上下文的重放错误透传给业务侧统一处理。
 						r.onError(ctx, err)
 					}
 				}

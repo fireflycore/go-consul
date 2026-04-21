@@ -56,6 +56,7 @@ func TestRunnerReplaysRegisterOnReconnect(t *testing.T) {
 	source.events <- ConnectionEvent{Type: ConnectionEventTypeHeartbeat}
 	source.events <- ConnectionEvent{Type: ConnectionEventTypeDisconnected, Connected: false}
 	source.events <- ConnectionEvent{Type: ConnectionEventTypeConnected, Connected: true}
+	// 给后台循环留出足够时间处理完整的恢复事件序列。
 	time.Sleep(50 * time.Millisecond)
 	cancel()
 	runErr := <-done
@@ -70,12 +71,15 @@ func TestRunnerReplaysRegisterOnReconnect(t *testing.T) {
 	if !status.Connected || !status.Registered {
 		t.Fatal("expected controller to be connected and registered after reconnect")
 	}
+	// 断连次数应准确记录一次中断。
 	if got, want := status.DisconnectCount, 1; got != want {
 		t.Fatalf("unexpected disconnect count: got=%d want=%d", got, want)
 	}
+	// register replay 成功次数应覆盖首次连接和恢复连接两次接管。
 	if got, want := status.RegisterReplayCount, 2; got != want {
 		t.Fatalf("unexpected replay count: got=%d want=%d", got, want)
 	}
+	// 最近事件类型应停留在最后一次 connected。
 	if got, want := status.LastEventType, ConnectionEventTypeConnected; got != want {
 		t.Fatalf("unexpected last event type: got=%s want=%s", got, want)
 	}
@@ -115,6 +119,7 @@ func TestRunnerMarksDisconnectedWhenRegisterFails(t *testing.T) {
 	}()
 	// 连接建立后 register 会失败，Runner 应把状态回退到 disconnected。
 	source.events <- ConnectionEvent{Type: ConnectionEventTypeConnected, Connected: true}
+	// 留出时间让失败回调和状态回退完成。
 	time.Sleep(50 * time.Millisecond)
 	cancel()
 	<-done
@@ -122,12 +127,15 @@ func TestRunnerMarksDisconnectedWhenRegisterFails(t *testing.T) {
 	if status.Connected || status.Registered {
 		t.Fatal("expected controller to be disconnected after register failure")
 	}
+	// 失败计数应准确记录这次 register replay 失败。
 	if got, want := status.RegisterReplayFailureCount, 1; got != want {
 		t.Fatalf("unexpected replay failure count: got=%d want=%d", got, want)
 	}
+	// 最近错误分类应收敛为 register_replay。
 	if got, want := status.LastErrorKind, "register_replay"; got != want {
 		t.Fatalf("unexpected last error kind: got=%s want=%s", got, want)
 	}
+	// 最近错误文本不应为空，方便业务侧直接排障。
 	if status.LastError == "" {
 		t.Fatal("expected last error text to be recorded")
 	}
@@ -170,6 +178,7 @@ func TestRunnerIgnoresHeartbeatEvents(t *testing.T) {
 	}()
 	source.events <- ConnectionEvent{Type: ConnectionEventTypeConnected, Connected: true}
 	source.events <- ConnectionEvent{Type: ConnectionEventTypeHeartbeat}
+	// 给 Runner 时间消费 heartbeat 并更新最近事件状态。
 	time.Sleep(50 * time.Millisecond)
 	cancel()
 	<-done
@@ -180,6 +189,7 @@ func TestRunnerIgnoresHeartbeatEvents(t *testing.T) {
 	if !status.Connected || !status.Registered {
 		t.Fatalf("expected controller to remain connected after heartbeat: %+v", status)
 	}
+	// heartbeat 不触发 replay，但应更新最近事件类型。
 	if got, want := status.LastEventType, ConnectionEventTypeHeartbeat; got != want {
 		t.Fatalf("unexpected last event type after heartbeat: got=%s want=%s", got, want)
 	}
