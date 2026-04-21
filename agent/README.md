@@ -16,6 +16,7 @@
 - 兼容结构化 SSE `connected / heartbeat` 事件并在连接断开后自动重连
 - 把非 200、流关闭与结构化坏帧收敛成可分类错误
 - 把 register replay 失败包装成带服务名与端口的可分类错误
+- 把 lifecycle、serve、shutdown 与 agent shutdown 失败包装成可分类阶段错误
 - 对外提供统一的 `drain` / `deregister` 入口
 
 ## 设计目标
