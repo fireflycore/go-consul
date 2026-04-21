@@ -5,10 +5,68 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
 )
+
+var (
+	// ErrWatchURLRequired 表示业务侧未提供本地 `/watch` 地址。
+	ErrWatchURLRequired = errors.New("watch url is required")
+	// ErrWatchStreamClosed 表示当前 watch 流已由服务端关闭，调用方应进入下一轮重连。
+	ErrWatchStreamClosed = errors.New("watch stream closed")
+)
+
+// WatchHTTPStatusError 表示 `/watch` 接口返回了非 200 状态码。
+type WatchHTTPStatusError struct {
+	// StatusCode 表示 HTTP 状态码。
+	StatusCode int
+	// Status 表示原始 HTTP 状态文本。
+	Status string
+}
+
+// Error 返回可读错误文本。
+func (e *WatchHTTPStatusError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if strings.TrimSpace(e.Status) != "" {
+		return fmt.Sprintf("watch endpoint returned non-200 status: %s", e.Status)
+	}
+	return fmt.Sprintf("watch endpoint returned non-200 status: %d", e.StatusCode)
+}
+
+// WatchEventParseError 表示 SSE 事件帧存在结构化载荷解析错误。
+type WatchEventParseError struct {
+	// EventType 表示解析失败的事件类型。
+	EventType string
+	// EventId 表示服务端 SSE 事件 ID。
+	EventId string
+	// Payload 表示原始 data 内容，便于调试坏帧。
+	Payload string
+	// Err 表示底层 JSON 解析错误。
+	Err error
+}
+
+// Error 返回可读错误文本。
+func (e *WatchEventParseError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if strings.TrimSpace(e.EventId) != "" {
+		return fmt.Sprintf("watch event parse failed: type=%s id=%s: %v", e.EventType, e.EventId, e.Err)
+	}
+	return fmt.Sprintf("watch event parse failed: type=%s: %v", e.EventType, e.Err)
+}
+
+// Unwrap 返回底层解析错误。
+func (e *WatchEventParseError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
 
 // watchEventPayload 描述 sidecar-agent `/watch` 输出的结构化 SSE 载荷。
 type watchEventPayload struct {
@@ -56,7 +114,7 @@ func NewWatchSource(watchURL string, reconnectInterval time.Duration) *WatchSour
 func (s *WatchSource) Subscribe(ctx context.Context) (<-chan ConnectionEvent, error) {
 	// watch 地址为空时直接返回错误，避免后台空跑。
 	if s.watchURL == "" {
-		return nil, errors.New("watch url is required")
+		return nil, ErrWatchURLRequired
 	}
 	// 创建事件输出通道，供 Runner 持续消费。
 	events := make(chan ConnectionEvent, 8)
@@ -110,7 +168,10 @@ func (s *WatchSource) watchOnce(ctx context.Context, events chan<- ConnectionEve
 	defer response.Body.Close()
 	// 仅允许 200 成功响应进入长连接读取阶段。
 	if response.StatusCode != http.StatusOK {
-		return errors.New("watch endpoint returned non-200 status")
+		return &WatchHTTPStatusError{
+			StatusCode: response.StatusCode,
+			Status:     response.Status,
+		}
 	}
 	// 连接建立成功后，先发送一条 connected 事件。
 	// 使用 scanner 持续读取服务端 SSE 帧，直到 EOF 或上下文取消。
@@ -159,7 +220,7 @@ func (s *WatchSource) watchOnce(ctx context.Context, events chan<- ConnectionEve
 	if err := scanner.Err(); err != nil {
 		return err
 	}
-	return errors.New("watch stream closed")
+	return ErrWatchStreamClosed
 }
 
 // emitWatchEvent 把一帧 SSE 内容转换成业务侧连接事件。
@@ -191,6 +252,14 @@ func emitWatchEvent(ctx context.Context, events chan<- ConnectionEvent, eventNam
 				event.Type = strings.TrimSpace(payload.Event)
 			}
 		} else {
+			if looksLikeJSON(payloadRaw) {
+				return &WatchEventParseError{
+					EventType: strings.TrimSpace(event.Type),
+					EventId:   strings.TrimSpace(event.EventId),
+					Payload:   payloadRaw,
+					Err:       err,
+				}
+			}
 			event.Message = strings.TrimSpace(payloadRaw)
 		}
 	}
@@ -214,4 +283,10 @@ func emitWatchEvent(ctx context.Context, events chan<- ConnectionEvent, eventNam
 	case events <- event:
 		return nil
 	}
+}
+
+// looksLikeJSON 通过首字符做一个最小判断，决定是否应该把坏帧视为结构化载荷解析失败。
+func looksLikeJSON(raw string) bool {
+	trimmed := strings.TrimSpace(raw)
+	return strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[")
 }

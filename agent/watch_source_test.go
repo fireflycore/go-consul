@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -119,5 +120,93 @@ func TestWatchSourceSupportsLegacyConnectedFrame(t *testing.T) {
 	first := <-events
 	if first.Type != ConnectionEventTypeConnected || !first.Connected {
 		t.Fatalf("expected legacy frame to map to connected event, got: %+v", first)
+	}
+}
+
+// TestWatchSourceReturnsHTTPStatusError 验证非 200 响应会返回可分类错误。
+func TestWatchSourceReturnsHTTPStatusError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		http.Error(writer, "unavailable", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	source := NewWatchSource(server.URL, 10*time.Millisecond)
+	err := source.watchOnce(context.Background(), make(chan ConnectionEvent, 1))
+	var statusErr *WatchHTTPStatusError
+	if !errors.As(err, &statusErr) {
+		t.Fatalf("expected WatchHTTPStatusError, got: %v", err)
+	}
+	if statusErr.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("unexpected status code: %+v", statusErr)
+	}
+}
+
+// TestWatchSourceReturnsStreamClosedError 验证 EOF 会被分类为可识别的 stream closed 错误。
+func TestWatchSourceReturnsStreamClosedError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		flusher, ok := writer.(http.Flusher)
+		if !ok {
+			t.Fatal("expected flusher")
+		}
+		_, _ = writer.Write([]byte("event: connected\n"))
+		_, _ = writer.Write([]byte("data: ok\n\n"))
+		flusher.Flush()
+	}))
+	defer server.Close()
+	source := NewWatchSource(server.URL, 10*time.Millisecond)
+	err := source.watchOnce(context.Background(), make(chan ConnectionEvent, 2))
+	if !errors.Is(err, ErrWatchStreamClosed) {
+		t.Fatalf("expected ErrWatchStreamClosed, got: %v", err)
+	}
+}
+
+// TestWatchSourceSubscribeEmitsDisconnectedOnHTTPStatusError 验证订阅循环会把 HTTP 状态错误转换成断连事件。
+func TestWatchSourceSubscribeEmitsDisconnectedOnHTTPStatusError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		http.Error(writer, "bad gateway", http.StatusBadGateway)
+	}))
+	defer server.Close()
+	source := NewWatchSource(server.URL, 10*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	events, err := source.Subscribe(ctx)
+	if err != nil {
+		t.Fatalf("subscribe failed: %v", err)
+	}
+	event := <-events
+	if event.Type != ConnectionEventTypeDisconnected || event.Connected {
+		t.Fatalf("expected disconnected event, got: %+v", event)
+	}
+	var statusErr *WatchHTTPStatusError
+	if !errors.As(event.Err, &statusErr) {
+		t.Fatalf("expected WatchHTTPStatusError in event error, got: %v", event.Err)
+	}
+}
+
+// TestEmitWatchEventIgnoresEmptyFrame 验证纯空帧不会输出任何事件。
+func TestEmitWatchEventIgnoresEmptyFrame(t *testing.T) {
+	ctx := context.Background()
+	events := make(chan ConnectionEvent, 1)
+	if err := emitWatchEvent(ctx, events, "", "", nil); err != nil {
+		t.Fatalf("emitWatchEvent failed: %v", err)
+	}
+	select {
+	case event := <-events:
+		t.Fatalf("expected no event, got: %+v", event)
+	default:
+	}
+}
+
+// TestEmitWatchEventReturnsParseErrorForMalformedStructuredPayload 验证结构化坏帧会返回可分类错误。
+func TestEmitWatchEventReturnsParseErrorForMalformedStructuredPayload(t *testing.T) {
+	ctx := context.Background()
+	events := make(chan ConnectionEvent, 1)
+	err := emitWatchEvent(ctx, events, "connected", "42", []string{`{"event":"connected"`})
+	var parseErr *WatchEventParseError
+	if !errors.As(err, &parseErr) {
+		t.Fatalf("expected WatchEventParseError, got: %v", err)
+	}
+	if parseErr.EventType != "connected" || parseErr.EventId != "42" {
+		t.Fatalf("unexpected parse error payload: %+v", parseErr)
 	}
 }

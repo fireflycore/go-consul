@@ -90,8 +90,10 @@ func TestRunnerMarksDisconnectedWhenRegisterFails(t *testing.T) {
 	}
 	// 记录错误回调次数，验证失败会被透传。
 	errorCount := 0
+	var lastError error
 	runner, err := NewRunner(source, controller, func(ctx context.Context, err error) {
 		errorCount++
+		lastError = err
 	})
 	if err != nil {
 		t.Fatalf("new runner failed: %v", err)
@@ -113,6 +115,13 @@ func TestRunnerMarksDisconnectedWhenRegisterFails(t *testing.T) {
 	}
 	if got, want := errorCount, 1; got != want {
 		t.Fatalf("unexpected error callback count: got=%d want=%d", got, want)
+	}
+	var replayErr *RegisterReplayError
+	if !errors.As(lastError, &replayErr) {
+		t.Fatalf("expected RegisterReplayError, got: %v", lastError)
+	}
+	if replayErr.ServiceName != "payment" || replayErr.ServicePort != 8080 {
+		t.Fatalf("unexpected replay error payload: %+v", replayErr)
 	}
 }
 

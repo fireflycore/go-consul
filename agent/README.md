@@ -14,6 +14,8 @@
 - 对本机 `sidecar-agent` 发起 `register`
 - 在本地连接恢复后自动重放注册
 - 兼容结构化 SSE `connected / heartbeat` 事件并在连接断开后自动重连
+- 把非 200、流关闭与结构化坏帧收敛成可分类错误
+- 把 register replay 失败包装成带服务名与端口的可分类错误
 - 对外提供统一的 `drain` / `deregister` 入口
 
 ## 设计目标
@@ -93,6 +95,15 @@
 - 连接状态订阅
 - 注册重放退避策略
 - 与 go-micro 启动钩子集成
+
+## 已冻结的下一批事项
+
+为避免后续上下文丢失，当前已明确下一批优先事项如下：
+
+1. 补 `watch` 非 200、坏帧、空帧、EOF 与退避重连测试。
+2. 补自动重放失败时的错误分类与更清晰日志。
+3. 继续收口 `LocalRuntime / ServiceLifecycle / ManagedServer` 与业务启动钩子的集成边界。
+4. 保持 `connected / heartbeat` 新协议与旧版兼容帧的双向兼容测试。
 
 ## 建议接入方式
 

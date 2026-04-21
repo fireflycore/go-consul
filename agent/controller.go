@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 )
 
@@ -59,11 +60,15 @@ func (c *Controller) OnConnected(ctx context.Context) error {
 	// 先从 provider 构造一份最新注册描述。
 	request, err := c.provider.BuildRegisterRequest(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("build register request failed: %w", err)
 	}
 	// 再通过 client 把注册请求发给本机 sidecar-agent。
 	if err := c.client.Register(ctx, request); err != nil {
-		return err
+		return &RegisterReplayError{
+			ServiceName: request.Name,
+			ServicePort: request.Port,
+			Err:         err,
+		}
 	}
 	// 注册成功后把最新请求与状态写回控制器缓存。
 	c.mu.Lock()
