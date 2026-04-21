@@ -61,7 +61,7 @@ func (l *ServiceLifecycle) Start(ctx context.Context) <-chan error {
 			defer close(l.errors)
 			// 若运行循环异常退出，则把错误透传给调用方。
 			if err := l.runtime.Run(ctx); err != nil && err != context.Canceled {
-				l.errors <- err
+				l.errors <- &LifecycleRunError{Err: err}
 			}
 		}()
 	})

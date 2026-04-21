@@ -65,10 +65,19 @@ func (s *ManagedServer) Run(ctx context.Context) error {
 			// 外层上下文结束时，先优雅关闭业务服务，再摘流并注销。
 			if s.shutdown != nil {
 				if err := s.shutdown(context.Background()); err != nil {
-					return err
+					return &ManagedServerRunError{
+						Stage: ManagedServerStageShutdown,
+						Err:   err,
+					}
 				}
 			}
-			return s.lifecycle.Shutdown(context.Background())
+			if err := s.lifecycle.Shutdown(context.Background()); err != nil {
+				return &ManagedServerRunError{
+					Stage: ManagedServerStageAgentShutdown,
+					Err:   err,
+				}
+			}
+			return nil
 		case err, ok := <-lifecycleErrCh:
 			// 生命周期错误通道关闭后表示不会再有新错误。
 			if !ok {
@@ -77,19 +86,34 @@ func (s *ManagedServer) Run(ctx context.Context) error {
 			}
 			// 生命周期桥接异常退出时直接向上抛出。
 			if err != nil {
-				return err
+				return &ManagedServerRunError{
+					Stage: ManagedServerStageLifecycle,
+					Err:   err,
+				}
 			}
 		case err := <-serveErrCh:
 			// 业务服务主动退出时，仍然要执行统一注销流程。
 			if s.shutdown != nil {
 				if shutdownErr := s.shutdown(context.Background()); shutdownErr != nil {
-					return shutdownErr
+					return &ManagedServerRunError{
+						Stage: ManagedServerStageShutdown,
+						Err:   shutdownErr,
+					}
 				}
 			}
 			if lifecycleErr := s.lifecycle.Shutdown(context.Background()); lifecycleErr != nil {
-				return lifecycleErr
+				return &ManagedServerRunError{
+					Stage: ManagedServerStageAgentShutdown,
+					Err:   lifecycleErr,
+				}
 			}
-			return err
+			if err != nil {
+				return &ManagedServerRunError{
+					Stage: ManagedServerStageServe,
+					Err:   err,
+				}
+			}
+			return nil
 		}
 	}
 }

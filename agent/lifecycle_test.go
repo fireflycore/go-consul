@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -29,8 +30,8 @@ func TestServiceLifecycleShutdownDelegates(t *testing.T) {
 		t.Fatalf("new controller failed: %v", err)
 	}
 	// 先建立一次成功注册，确保控制器缓存了最近一次请求。
-	if err := controller.OnConnected(context.Background()); err != nil {
-		t.Fatalf("on connected failed: %v", err)
+	if connectErr := controller.OnConnected(context.Background()); connectErr != nil {
+		t.Fatalf("on connected failed: %v", connectErr)
 	}
 	// 组装最小本地运行时与生命周期桥接对象。
 	runtime := &LocalRuntime{
@@ -44,8 +45,8 @@ func TestServiceLifecycleShutdownDelegates(t *testing.T) {
 		t.Fatalf("new service lifecycle failed: %v", err)
 	}
 	// 执行一次优雅关闭。
-	if err := lifecycle.Shutdown(context.Background()); err != nil {
-		t.Fatalf("shutdown failed: %v", err)
+	if shutdownErr := lifecycle.Shutdown(context.Background()); shutdownErr != nil {
+		t.Fatalf("shutdown failed: %v", shutdownErr)
 	}
 	// 关闭流程应按顺序执行一次 drain 和一次 deregister。
 	if got, want := len(client.drainCalls), 1; got != want {
@@ -80,5 +81,25 @@ func TestServiceLifecycleStartReturnsErrorChannel(t *testing.T) {
 	errorsCh := lifecycle.Start(ctx)
 	if errorsCh == nil {
 		t.Fatal("expected non-nil error channel")
+	}
+}
+
+// TestServiceLifecycleStartWrapsRuntimeError 验证后台运行错误会被包装为可分类生命周期错误。
+func TestServiceLifecycleStartWrapsRuntimeError(t *testing.T) {
+	lifecycle := newTestLifecycle(t)
+	lifecycle.runtime.Runner = &Runner{
+		source:     failingEventSource{},
+		controller: lifecycle.runtime.Controller,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	errCh := lifecycle.Start(ctx)
+	err := <-errCh
+	var lifecycleErr *LifecycleRunError
+	if !errors.As(err, &lifecycleErr) {
+		t.Fatalf("expected LifecycleRunError, got: %v", err)
+	}
+	if !errors.Is(lifecycleErr, context.DeadlineExceeded) {
+		t.Fatalf("expected wrapped deadline exceeded, got: %v", lifecycleErr)
 	}
 }

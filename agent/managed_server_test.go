@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -81,8 +82,69 @@ func TestManagedServerRunReturnsLifecycleError(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	if err := server.Run(ctx); err == nil {
+	err = server.Run(ctx)
+	if err == nil {
 		t.Fatal("expected lifecycle error to be returned")
+	}
+	var runErr *ManagedServerRunError
+	if !errors.As(err, &runErr) {
+		t.Fatalf("expected ManagedServerRunError, got: %v", err)
+	}
+	if runErr.Stage != ManagedServerStageLifecycle {
+		t.Fatalf("unexpected stage: %+v", runErr)
+	}
+	var lifecycleErr *LifecycleRunError
+	if !errors.As(runErr, &lifecycleErr) {
+		t.Fatalf("expected wrapped LifecycleRunError, got: %v", runErr)
+	}
+}
+
+// TestManagedServerRunWrapsServeError 验证业务服务运行失败会带阶段信息返回。
+func TestManagedServerRunWrapsServeError(t *testing.T) {
+	lifecycle := newTestLifecycle(t)
+	serveErr := errors.New("serve failed")
+	server, err := NewManagedServer(ManagedServerOptions{
+		Lifecycle: lifecycle,
+		Serve: func(ctx context.Context) error {
+			return serveErr
+		},
+	})
+	if err != nil {
+		t.Fatalf("new managed server failed: %v", err)
+	}
+	err = server.Run(context.Background())
+	var runErr *ManagedServerRunError
+	if !errors.As(err, &runErr) {
+		t.Fatalf("expected ManagedServerRunError, got: %v", err)
+	}
+	if runErr.Stage != ManagedServerStageServe || !errors.Is(runErr, serveErr) {
+		t.Fatalf("unexpected managed server serve error: %+v", runErr)
+	}
+}
+
+// TestManagedServerRunWrapsShutdownError 验证 shutdown 失败会带阶段信息返回。
+func TestManagedServerRunWrapsShutdownError(t *testing.T) {
+	lifecycle := newTestLifecycle(t)
+	shutdownErr := errors.New("shutdown failed")
+	server, err := NewManagedServer(ManagedServerOptions{
+		Lifecycle: lifecycle,
+		Serve: func(ctx context.Context) error {
+			return nil
+		},
+		Shutdown: func(ctx context.Context) error {
+			return shutdownErr
+		},
+	})
+	if err != nil {
+		t.Fatalf("new managed server failed: %v", err)
+	}
+	err = server.Run(context.Background())
+	var runErr *ManagedServerRunError
+	if !errors.As(err, &runErr) {
+		t.Fatalf("expected ManagedServerRunError, got: %v", err)
+	}
+	if runErr.Stage != ManagedServerStageShutdown || !errors.Is(runErr, shutdownErr) {
+		t.Fatalf("unexpected managed server shutdown error: %+v", runErr)
 	}
 }
 
@@ -107,8 +169,8 @@ func newTestLifecycle(t *testing.T) *ServiceLifecycle {
 	if err != nil {
 		t.Fatalf("new controller failed: %v", err)
 	}
-	if err := controller.OnConnected(context.Background()); err != nil {
-		t.Fatalf("on connected failed: %v", err)
+	if connectErr := controller.OnConnected(context.Background()); connectErr != nil {
+		t.Fatalf("on connected failed: %v", connectErr)
 	}
 	runtime := &LocalRuntime{
 		Controller: controller,
