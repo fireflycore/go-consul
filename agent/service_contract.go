@@ -2,6 +2,7 @@ package agent
 
 import (
 	"github.com/fireflycore/go-micro/constant"
+	"github.com/fireflycore/go-micro/kernel"
 )
 
 // ServiceMeta 描述业务服务在裸机场景下的最小身份信息。
@@ -20,7 +21,7 @@ type ServiceKernel struct {
 
 // Bootstrap 补齐内核默认值。
 func (k *ServiceKernel) Bootstrap() {
-	k.Language = constant.KernelLanguage
+	k.Language = kernel.Language
 	if k.Version == "" {
 		k.Version = constant.DefaultVersion
 	}
