@@ -2,10 +2,12 @@ package agent
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/fireflycore/go-micro/app"
 	"github.com/fireflycore/go-micro/kernel"
 	"github.com/fireflycore/go-micro/service"
+	"google.golang.org/grpc"
 )
 
 type SidecarAgentConfig struct {
@@ -17,11 +19,11 @@ type SidecarAgentConfig struct {
 
 type Options struct {
 	// App 应用配置
-	App *app.Config `json:"app"`
+	App app.Config `json:"app"`
 	// Kernel 内核配置
-	Kernel *kernel.Config `json:"kernel"`
+	Kernel kernel.Config `json:"kernel"`
 	// Service 服务配置
-	Service *service.Config `json:"service"`
+	Service service.Config `json:"service"`
 
 	// Protocol 表示业务协议, grpc / http。
 	Protocol string `json:"protocol"`
@@ -33,7 +35,7 @@ type Options struct {
 
 func (o *Options) BuildDNS() string {
 	// demo.default.svc.cluster.local:9090
-	return fmt.Sprintf("%s.%s.%s.%s.%s:%d", o.Service.Name, o.Service.Namespace, o.Service.Type, o.Service.ClusterDomain, o.ServerPort)
+	return fmt.Sprintf("%s.%s.%s.%s:%d", o.Service.Name, o.Service.Namespace, o.Service.Type, o.Service.ClusterDomain, o.ServerPort)
 }
 
 // ServiceNode 描述业务服务在裸机场景下的最小注册节点信息。
@@ -47,4 +49,30 @@ type ServiceNodeInfo struct {
 	ProtoCount uint `json:"proto_count"`
 	// Methods 表示业务服务暴露的方法列表。
 	Methods []string `json:"methods"`
+}
+
+func NewServiceNode(options *Options, serviceRaw []*grpc.ServiceDesc) *ServiceNodeInfo {
+	// 防止透传 app.Secret 到 Consul
+	options.App.Secret = ""
+
+	node := &ServiceNodeInfo{
+		Options: options,
+	}
+	node.DNS = options.BuildDNS()
+	node.RunDate = time.Now().Format(time.RFC3339)
+
+	node.ProtoCount = uint(len(serviceRaw))
+	node.Methods = make([]string, 0)
+
+	// 逐个解析 gRPC service desc，转换为统一 method 路径。
+	for _, desc := range serviceRaw {
+		if desc == nil {
+			continue
+		}
+		for _, method := range desc.Methods {
+			node.Methods = append(node.Methods, fmt.Sprintf("/%s/%s", desc.ServiceName, method.MethodName))
+		}
+	}
+
+	return node
 }
