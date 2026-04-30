@@ -10,20 +10,20 @@ import (
 	"time"
 )
 
-// JSONHTTPClient 提供一个基于 JSON over HTTP 的本地 agent client 实现。
-type JSONHTTPClient struct {
+// HttpClient 提供一个基于 JSON over HTTP 的本地 agent client 实现。
+type HttpClient struct {
 	// baseURL 表示本机 sidecar-agent 管理接口前缀。
 	baseURL string
 	// client 表示实际发起 HTTP 请求的客户端。
 	client *http.Client
 }
 
-// NewJSONHTTPClient 创建一个新的本地 HTTP JSON client。
-func NewJSONHTTPClient(baseURL string, timeout time.Duration) *JSONHTTPClient {
+// NewHttpClient 创建一个新的本地 HTTP JSON client。
+func NewHttpClient(baseURL string, timeout time.Duration) *HttpClient {
 	// 对基础地址做最小清洗，避免拼接路径时出现双斜杠。
 	cleanBaseURL := strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	// 返回一个带固定超时的最小 HTTP 客户端封装。
-	return &JSONHTTPClient{
+	return &HttpClient{
 		baseURL: cleanBaseURL,
 		client: &http.Client{
 			Timeout: timeout,
@@ -31,26 +31,8 @@ func NewJSONHTTPClient(baseURL string, timeout time.Duration) *JSONHTTPClient {
 	}
 }
 
-// Register 通过本机管理接口注册当前服务。
-func (c *JSONHTTPClient) Register(ctx context.Context, request RegisterRequest) error {
-	// 统一走公共 POST JSON 逻辑，减少重复实现。
-	return c.postJSON(ctx, "/register", request)
-}
-
-// Drain 通过本机管理接口发起摘流。
-func (c *JSONHTTPClient) Drain(ctx context.Context, request DrainRequest) error {
-	// 统一走公共 POST JSON 逻辑，减少重复实现。
-	return c.postJSON(ctx, "/drain", request)
-}
-
-// Deregister 通过本机管理接口发起注销。
-func (c *JSONHTTPClient) Deregister(ctx context.Context, request DeregisterRequest) error {
-	// 统一走公共 POST JSON 逻辑，减少重复实现。
-	return c.postJSON(ctx, "/deregister", request)
-}
-
-// postJSON 把任意请求对象编码成 JSON 并发往本机 sidecar-agent。
-func (c *JSONHTTPClient) postJSON(ctx context.Context, path string, payload any) error {
+// PostJSON 把任意请求对象编码成 JSON 并发往本机 sidecar-agent。
+func (c *HttpClient) PostJSON(ctx context.Context, path string, payload any) error {
 	// 先把请求体对象编码成 JSON。
 	body, err := json.Marshal(payload)
 	if err != nil {

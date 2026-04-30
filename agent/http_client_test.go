@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-// TestJSONHTTPClientRegister 验证本地 HTTP client 能把 register 正确发往 sidecar-agent。
-func TestJSONHTTPClientRegister(t *testing.T) {
+// TestHttpClientRegister 验证本地 HTTP client 能把 register 正确发往 sidecar-agent。
+func TestHttpClientRegister(t *testing.T) {
 	// 记录是否命中 register 路由，便于断言请求是否真正发送。
 	called := false
 	// 创建一个最小测试服务端，模拟 sidecar-agent 管理接口。
@@ -26,9 +26,9 @@ func TestJSONHTTPClientRegister(t *testing.T) {
 	// 在测试结束时关闭服务端。
 	defer server.Close()
 	// 创建待测 client。
-	client := NewJSONHTTPClient(server.URL, time.Second)
+	client := NewHttpClient(server.URL, time.Second)
 	// 发起一次注册请求。
-	if err := client.Register(context.Background(), RegisterRequest{
+	if err := client.PostJSON(context.Background(), "/register", RegisterRequest{
 		Name: "auth",
 		Port: 9090,
 	}); err != nil {
