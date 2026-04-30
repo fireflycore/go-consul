@@ -18,7 +18,7 @@ func NewApiClient(client *HttpClient) *ApiClient {
 }
 
 // Register 通过本机管理接口注册当前服务。
-func (c *ApiClient) Register(ctx context.Context, request *ServiceNodeInfo) error {
+func (c *ApiClient) Register(ctx context.Context, request *ServiceNode) error {
 	// 统一走公共 POST JSON 逻辑，减少重复实现。
 	return c.client.PostJSON(ctx, "/register", request)
 }
