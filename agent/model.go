@@ -10,6 +10,8 @@ type KernelInfo struct {
 
 // RegisterRequest 表示业务服务向本机 sidecar-agent 发起的注册请求。
 type RegisterRequest struct {
+	ServiceNodeInfo
+
 	// AppID 表示应用标识。
 	AppID string `json:"app_id"`
 	// AppName 表示应用名称。
@@ -34,24 +36,6 @@ type RegisterRequest struct {
 	Methods []string `json:"methods"`
 	// Version 表示业务版本号。
 	Version string `json:"version"`
-}
-
-// DrainRequest 表示业务服务向本机 sidecar-agent 发起的摘流请求。
-type DrainRequest struct {
-	// Name 表示逻辑服务名。
-	Name string `json:"name"`
-	// Port 表示业务服务监听端口。
-	Port int `json:"port"`
-	// GracePeriod 表示摘流宽限期。
-	GracePeriod string `json:"grace_period"`
-}
-
-// DeregisterRequest 表示业务服务向本机 sidecar-agent 发起的注销请求。
-type DeregisterRequest struct {
-	// Name 表示逻辑服务名。
-	Name string `json:"name"`
-	// Port 表示业务服务监听端口。
-	Port int `json:"port"`
 }
 
 // Status 描述当前 agent 联动控制器的最新状态。
