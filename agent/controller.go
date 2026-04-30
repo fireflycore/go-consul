@@ -145,8 +145,10 @@ func (c *Controller) Drain(ctx context.Context, gracePeriod string) error {
 	}
 	// 复用最近一次注册时的服务名和端口构造摘流请求。
 	return c.client.Drain(ctx, DrainRequest{
-		Name:        request.Name,
-		Port:        request.Port,
+		AppId:         request.App.Id,
+		AppInstanceId: request.App.InstanceId,
+
+		ServiceName: request.Name,
 		GracePeriod: gracePeriod,
 	})
 }
@@ -163,8 +165,11 @@ func (c *Controller) Deregister(ctx context.Context) error {
 	}
 	// 复用最近一次注册时的服务名和端口构造注销请求。
 	return c.client.Deregister(ctx, DeregisterRequest{
-		Name: request.Name,
-		Port: request.Port,
+		AppId:         request.App.Id,
+		AppInstanceId: request.App.InstanceId,
+
+		ServiceName: request.Name,
+		ServicePort: request.ServerPort,
 	})
 }
 

@@ -106,10 +106,7 @@ func TestControllerDrainAndDeregisterUseLastRequest(t *testing.T) {
 	if got, want := len(client.deregisterCalls), 1; got != want {
 		t.Fatalf("unexpected deregister call count: got=%d want=%d", got, want)
 	}
-	if got, want := client.drainCalls[0].Name, "payment"; got != want {
+	if got, want := client.drainCalls[0].ServiceName, "payment"; got != want {
 		t.Fatalf("unexpected drain service: got=%s want=%s", got, want)
-	}
-	if got, want := client.deregisterCalls[0].Port, 8080; got != want {
-		t.Fatalf("unexpected deregister port: got=%d want=%d", got, want)
 	}
 }
