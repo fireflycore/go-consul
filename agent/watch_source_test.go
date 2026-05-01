@@ -415,6 +415,87 @@ func TestWatchSourceWatchOnceSupportsLargeFrame(t *testing.T) {
 	}
 }
 
+// TestWatchSourceWatchOnceHandlesEmptyStreamEOF 验证空响应体会被视为正常流结束，而不是卡住或产出脏事件。
+func TestWatchSourceWatchOnceHandlesEmptyStreamEOF(t *testing.T) {
+	events := make(chan ConnectionEvent, 1)
+	source := NewWatchSource("http://sidecar.local/watch", 10*time.Millisecond)
+	source.client = &http.Client{
+		Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			return newSSEOKResponse(""), nil
+		}),
+	}
+	err := source.watchOnce(context.Background(), events)
+	if !errors.Is(err, ErrWatchStreamClosed) {
+		t.Fatalf("expected ErrWatchStreamClosed, got: %v", err)
+	}
+	select {
+	case event := <-events:
+		t.Fatalf("expected no events for empty stream, got: %+v", event)
+	default:
+	}
+}
+
+// TestWatchSourceWatchOnceIgnoresInvalidLastLineAtEOF 验证尾部非法行在 EOF 时会被宽容忽略。
+func TestWatchSourceWatchOnceIgnoresInvalidLastLineAtEOF(t *testing.T) {
+	events := make(chan ConnectionEvent, 1)
+	source := NewWatchSource("http://sidecar.local/watch", 10*time.Millisecond)
+	source.client = &http.Client{
+		Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			return newSSEOKResponse("invalid-line-without-colon"), nil
+		}),
+	}
+	err := source.watchOnce(context.Background(), events)
+	if !errors.Is(err, ErrWatchStreamClosed) {
+		t.Fatalf("expected ErrWatchStreamClosed, got: %v", err)
+	}
+	select {
+	case event := <-events:
+		t.Fatalf("expected invalid last line to be ignored, got: %+v", event)
+	default:
+	}
+}
+
+// TestWatchSourceWatchOnceReturnsParseErrorForMalformedStructuredPayload 验证结构化坏帧会沿 watchOnce 原样向上返回。
+func TestWatchSourceWatchOnceReturnsParseErrorForMalformedStructuredPayload(t *testing.T) {
+	events := make(chan ConnectionEvent, 1)
+	source := NewWatchSource("http://sidecar.local/watch", 10*time.Millisecond)
+	source.client = &http.Client{
+		Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			return newSSEOKResponse("id: broken-1\nevent: connected\ndata: {\"event\":\"connected\"\n\n"), nil
+		}),
+	}
+	err := source.watchOnce(context.Background(), events)
+	var parseErr *WatchEventParseError
+	if !errors.As(err, &parseErr) {
+		t.Fatalf("expected WatchEventParseError, got: %v", err)
+	}
+	if parseErr.EventType != ConnectionEventTypeConnected || parseErr.EventId != "broken-1" {
+		t.Fatalf("unexpected parse error payload: %+v", parseErr)
+	}
+}
+
+// TestWatchSourceWatchOnceJoinsMultiLineData 验证多行 data 会按 SSE 规则拼回单个 payload。
+func TestWatchSourceWatchOnceJoinsMultiLineData(t *testing.T) {
+	events := make(chan ConnectionEvent, 1)
+	source := NewWatchSource("http://sidecar.local/watch", 10*time.Millisecond)
+	source.client = &http.Client{
+		Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			return newSSEOKResponse(
+				"data: {\"event\":\"heartbeat\",\n" +
+					"data: \"message\":\"joined payload\"}\n\n",
+			), nil
+		}),
+	}
+	err := source.watchOnce(context.Background(), events)
+	if !errors.Is(err, ErrWatchStreamClosed) {
+		t.Fatalf("expected ErrWatchStreamClosed, got: %v", err)
+	}
+	event := <-events
+	if event.Type != ConnectionEventTypeHeartbeat || event.Message != "joined payload" {
+		t.Fatalf("unexpected joined payload event: %+v", event)
+	}
+}
+
 // TestEmitWatchEventIgnoresEmptyFrame 验证纯空帧不会输出任何事件。
 func TestEmitWatchEventIgnoresEmptyFrame(t *testing.T) {
 	ctx := context.Background()

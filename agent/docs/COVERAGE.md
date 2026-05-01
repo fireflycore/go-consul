@@ -11,7 +11,7 @@ go tool cover -func=agent.cover.out
 ## 2. 当前整体覆盖率
 
 ```text
-total: (statements) 95.7%
+total: (statements) 96.2%
 ```
 
 ## 3. 当前关键覆盖情况
@@ -42,7 +42,7 @@ total: (statements) 95.7%
   - `WatchHTTPStatusError.Error / WatchEventParseError.Error / Unwrap`: `100%`
   - `NewWatchSource`: `100%`
   - `Subscribe`: `90.0%`
-  - `watchOnce`: `86.5%`
+  - `watchOnce`: `90.4%`
   - `emitWatchEvent`: `94.1%`
   - `trimSSEFieldValue / looksLikeJSON / joinDataLines`: `100%`
 
@@ -107,16 +107,16 @@ github.com/fireflycore/go-consul/agent/watch_source.go:64:      Error          1
 github.com/fireflycore/go-consul/agent/watch_source.go:78:      Unwrap         100.0%
 github.com/fireflycore/go-consul/agent/watch_source.go:116:     NewWatchSource 100.0%
 github.com/fireflycore/go-consul/agent/watch_source.go:133:     Subscribe      90.0%
-github.com/fireflycore/go-consul/agent/watch_source.go:189:     watchOnce      86.5%
+github.com/fireflycore/go-consul/agent/watch_source.go:189:     watchOnce      90.4%
 github.com/fireflycore/go-consul/agent/watch_source.go:293:     emitWatchEvent 94.1%
 github.com/fireflycore/go-consul/agent/watch_source.go:376:     looksLikeJSON  100.0%
 github.com/fireflycore/go-consul/agent/watch_source.go:384:     trimSSEFieldValue               100.0%
 github.com/fireflycore/go-consul/agent/watch_source.go:394:     joinDataLines  100.0%
-total:                                                          (statements)   95.7%
+total:                                                          (statements)   96.2%
 ```
 
 ## 5. 当前结论
 
-- 当前覆盖率已经达到 `95.7%`
+- 当前覆盖率已经达到 `96.2%`
 - 运行主链、watch 事件解析、ServiceNode 构造、Controller 主要路径都已覆盖
 - 剩余空白主要集中在少量创建失败、异常 IO 和个别初始化边缘分支
