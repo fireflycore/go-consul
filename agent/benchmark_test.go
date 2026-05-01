@@ -1,0 +1,136 @@
+package agent
+
+import (
+	"context"
+	"fmt"
+	"testing"
+
+	microapp "github.com/fireflycore/go-micro/app"
+	microsvc "github.com/fireflycore/go-micro/service"
+	"google.golang.org/grpc"
+)
+
+type benchmarkNoopClient struct{}
+
+func (benchmarkNoopClient) Register(ctx context.Context, request *ServiceNode) error {
+	return nil
+}
+
+func (benchmarkNoopClient) Drain(ctx context.Context, request DrainRequest) error {
+	return nil
+}
+
+func (benchmarkNoopClient) Deregister(ctx context.Context, request DeregisterRequest) error {
+	return nil
+}
+
+func benchmarkServiceOptions() *ServiceOptions {
+	return &ServiceOptions{
+		App: microapp.Config{
+			Id:         "10001",
+			Name:       "auth",
+			InstanceId: "auth-1",
+		},
+		Service: microsvc.Config{
+			Name:          "auth",
+			Namespace:     "default",
+			Type:          "svc",
+			ClusterDomain: "cluster.local",
+		},
+		Protocol:   "grpc",
+		ServerPort: 9090,
+	}
+}
+
+func benchmarkServiceDescs(serviceCount, methodsPerService int) []*grpc.ServiceDesc {
+	descs := make([]*grpc.ServiceDesc, 0, serviceCount)
+	for serviceIndex := 0; serviceIndex < serviceCount; serviceIndex++ {
+		methods := make([]grpc.MethodDesc, 0, methodsPerService)
+		for methodIndex := 0; methodIndex < methodsPerService; methodIndex++ {
+			methods = append(methods, grpc.MethodDesc{
+				MethodName: fmt.Sprintf("Method%d", methodIndex),
+			})
+		}
+		descs = append(descs, &grpc.ServiceDesc{
+			ServiceName: fmt.Sprintf("acme.bench.v1.Service%d", serviceIndex),
+			Methods:     methods,
+		})
+	}
+	return descs
+}
+
+func BenchmarkBuildGRPCMethods(b *testing.B) {
+	b.ReportAllocs()
+
+	cases := []struct {
+		name             string
+		serviceCount     int
+		methodsPerServer int
+	}{
+		{name: "small", serviceCount: 1, methodsPerServer: 8},
+		{name: "medium", serviceCount: 8, methodsPerServer: 16},
+		{name: "large", serviceCount: 32, methodsPerServer: 32},
+	}
+
+	for _, tc := range cases {
+		descs := benchmarkServiceDescs(tc.serviceCount, tc.methodsPerServer)
+		b.Run(tc.name, func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				_ = BuildGRPCMethods(descs)
+			}
+		})
+	}
+}
+
+func BenchmarkNewServiceNode(b *testing.B) {
+	b.ReportAllocs()
+	options := benchmarkServiceOptions()
+	descs := benchmarkServiceDescs(8, 16)
+
+	for i := 0; i < b.N; i++ {
+		_ = NewServiceNode(options, descs)
+	}
+}
+
+func BenchmarkControllerOnConnected(b *testing.B) {
+	b.ReportAllocs()
+	controller, err := NewController(benchmarkNoopClient{}, NewServiceNode(benchmarkServiceOptions(), benchmarkServiceDescs(4, 8)))
+	if err != nil {
+		b.Fatalf("new controller failed: %v", err)
+	}
+	ctx := context.Background()
+
+	for i := 0; i < b.N; i++ {
+		if err := controller.OnConnected(ctx); err != nil {
+			b.Fatalf("on connected failed: %v", err)
+		}
+	}
+}
+
+func BenchmarkEmitWatchEvent(b *testing.B) {
+	b.ReportAllocs()
+
+	b.Run("structured", func(b *testing.B) {
+		ctx := context.Background()
+		payload := []string{`{"event":"connected","message":"ready","service":"sidecar-agent","status":"ready"}`}
+		events := make(chan ConnectionEvent, 1)
+		for i := 0; i < b.N; i++ {
+			if err := emitWatchEvent(ctx, events, "connected", "1", payload); err != nil {
+				b.Fatalf("emit watch event failed: %v", err)
+			}
+			<-events
+		}
+	})
+
+	b.Run("legacy", func(b *testing.B) {
+		ctx := context.Background()
+		payload := []string{"ok"}
+		events := make(chan ConnectionEvent, 1)
+		for i := 0; i < b.N; i++ {
+			if err := emitWatchEvent(ctx, events, "message", "1", payload); err != nil {
+				b.Fatalf("emit watch event failed: %v", err)
+			}
+			<-events
+		}
+	})
+}
