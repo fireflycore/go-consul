@@ -25,18 +25,11 @@ func (s *fakeEventSource) Subscribe(ctx context.Context) (<-chan ConnectionEvent
 
 // TestRunnerReplaysRegisterOnReconnect 验证连接恢复时会触发 register 重放。
 func TestRunnerReplaysRegisterOnReconnect(t *testing.T) {
-	// 创建最小 fake client 与控制器。
 	client := &fakeClient{}
-	controller, err := NewController(client, fakeProvider{
-		request: RegisterRequest{
-			Name: "auth",
-			Port: 9090,
-		},
-	})
+	controller, err := NewController(client, testServiceNode("auth", 9090))
 	if err != nil {
 		t.Fatalf("new controller failed: %v", err)
 	}
-	// 创建一个带缓冲的事件源，依次投递连接、断开、重连事件。
 	source := &fakeEventSource{
 		events: make(chan ConnectionEvent, 4),
 	}
@@ -44,19 +37,16 @@ func TestRunnerReplaysRegisterOnReconnect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new runner failed: %v", err)
 	}
-	// 启动 Runner 后台循环。
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
 		done <- runner.Run(ctx)
 	}()
-	// 依次模拟首次连接、heartbeat、连接断开、连接恢复。
 	source.events <- ConnectionEvent{Type: ConnectionEventTypeConnected, Connected: true}
 	source.events <- ConnectionEvent{Type: ConnectionEventTypeHeartbeat}
 	source.events <- ConnectionEvent{Type: ConnectionEventTypeDisconnected, Connected: false}
 	source.events <- ConnectionEvent{Type: ConnectionEventTypeConnected, Connected: true}
-	// 给后台循环留出足够时间处理完整的恢复事件序列。
 	time.Sleep(50 * time.Millisecond)
 	cancel()
 	runErr := <-done
@@ -66,20 +56,16 @@ func TestRunnerReplaysRegisterOnReconnect(t *testing.T) {
 	if got, want := len(client.registerCalls), 2; got != want {
 		t.Fatalf("unexpected register call count: got=%d want=%d", got, want)
 	}
-	// 最终状态应停留在 connected + registered。
 	status := controller.Status()
 	if !status.Connected || !status.Registered {
 		t.Fatal("expected controller to be connected and registered after reconnect")
 	}
-	// 断连次数应准确记录一次中断。
 	if got, want := status.DisconnectCount, 1; got != want {
 		t.Fatalf("unexpected disconnect count: got=%d want=%d", got, want)
 	}
-	// register replay 成功次数应覆盖首次连接和恢复连接两次接管。
 	if got, want := status.RegisterReplayCount, 2; got != want {
 		t.Fatalf("unexpected replay count: got=%d want=%d", got, want)
 	}
-	// 最近事件类型应停留在最后一次 connected。
 	if got, want := status.LastEventType, ConnectionEventTypeConnected; got != want {
 		t.Fatalf("unexpected last event type: got=%s want=%s", got, want)
 	}
@@ -87,21 +73,13 @@ func TestRunnerReplaysRegisterOnReconnect(t *testing.T) {
 
 // TestRunnerMarksDisconnectedWhenRegisterFails 验证 register 失败时会把状态回退为断连。
 func TestRunnerMarksDisconnectedWhenRegisterFails(t *testing.T) {
-	// 使用会失败的 client 构造控制器。
-	controller, err := NewController(&failingClient{}, fakeProvider{
-		request: RegisterRequest{
-			Name: "payment",
-			Port: 8080,
-		},
-	})
+	controller, err := NewController(&failingClient{}, testServiceNode("payment", 8080))
 	if err != nil {
 		t.Fatalf("new controller failed: %v", err)
 	}
-	// 创建事件源，仅投递一次 connected 事件。
 	source := &fakeEventSource{
 		events: make(chan ConnectionEvent, 1),
 	}
-	// 记录错误回调次数，验证失败会被透传。
 	errorCount := 0
 	var lastError error
 	runner, err := NewRunner(source, controller, func(ctx context.Context, err error) {
@@ -117,9 +95,7 @@ func TestRunnerMarksDisconnectedWhenRegisterFails(t *testing.T) {
 	go func() {
 		done <- runner.Run(ctx)
 	}()
-	// 连接建立后 register 会失败，Runner 应把状态回退到 disconnected。
 	source.events <- ConnectionEvent{Type: ConnectionEventTypeConnected, Connected: true}
-	// 留出时间让失败回调和状态回退完成。
 	time.Sleep(50 * time.Millisecond)
 	cancel()
 	<-done
@@ -127,15 +103,12 @@ func TestRunnerMarksDisconnectedWhenRegisterFails(t *testing.T) {
 	if status.Connected || status.Registered {
 		t.Fatal("expected controller to be disconnected after register failure")
 	}
-	// 失败计数应准确记录这次 register replay 失败。
 	if got, want := status.RegisterReplayFailureCount, 1; got != want {
 		t.Fatalf("unexpected replay failure count: got=%d want=%d", got, want)
 	}
-	// 最近错误分类应收敛为 register_replay。
 	if got, want := status.LastErrorKind, "register_replay"; got != want {
 		t.Fatalf("unexpected last error kind: got=%s want=%s", got, want)
 	}
-	// 最近错误文本不应为空，方便业务侧直接排障。
 	if status.LastError == "" {
 		t.Fatal("expected last error text to be recorded")
 	}
@@ -154,12 +127,7 @@ func TestRunnerMarksDisconnectedWhenRegisterFails(t *testing.T) {
 // TestRunnerIgnoresHeartbeatEvents 验证 heartbeat 不会触发 register 重放或状态回退。
 func TestRunnerIgnoresHeartbeatEvents(t *testing.T) {
 	client := &fakeClient{}
-	controller, err := NewController(client, fakeProvider{
-		request: RegisterRequest{
-			Name: "catalog",
-			Port: 7070,
-		},
-	})
+	controller, err := NewController(client, testServiceNode("catalog", 7070))
 	if err != nil {
 		t.Fatalf("new controller failed: %v", err)
 	}
@@ -178,7 +146,6 @@ func TestRunnerIgnoresHeartbeatEvents(t *testing.T) {
 	}()
 	source.events <- ConnectionEvent{Type: ConnectionEventTypeConnected, Connected: true}
 	source.events <- ConnectionEvent{Type: ConnectionEventTypeHeartbeat}
-	// 给 Runner 时间消费 heartbeat 并更新最近事件状态。
 	time.Sleep(50 * time.Millisecond)
 	cancel()
 	<-done
@@ -189,9 +156,65 @@ func TestRunnerIgnoresHeartbeatEvents(t *testing.T) {
 	if !status.Connected || !status.Registered {
 		t.Fatalf("expected controller to remain connected after heartbeat: %+v", status)
 	}
-	// heartbeat 不触发 replay，但应更新最近事件类型。
 	if got, want := status.LastEventType, ConnectionEventTypeHeartbeat; got != want {
 		t.Fatalf("unexpected last event type after heartbeat: got=%s want=%s", got, want)
+	}
+}
+
+// TestRunnerReturnsNilWhenEventSourceCloses 验证事件源关闭时运行循环会自然退出。
+func TestRunnerReturnsNilWhenEventSourceCloses(t *testing.T) {
+	controller, err := NewController(&fakeClient{}, testServiceNode("ops", 6063))
+	if err != nil {
+		t.Fatalf("new controller failed: %v", err)
+	}
+	events := make(chan ConnectionEvent)
+	close(events)
+	runner, err := NewRunner(&fakeEventSource{events: events}, controller, nil)
+	if err != nil {
+		t.Fatalf("new runner failed: %v", err)
+	}
+	if err := runner.Run(context.Background()); err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+}
+
+// TestRunnerPropagatesDisconnectedEventError 验证断连事件上的错误会被记录并回调。
+func TestRunnerPropagatesDisconnectedEventError(t *testing.T) {
+	controller, err := NewController(&fakeClient{}, testServiceNode("ops", 6064))
+	if err != nil {
+		t.Fatalf("new controller failed: %v", err)
+	}
+	eventErr := &WatchHTTPStatusError{StatusCode: 502}
+	events := make(chan ConnectionEvent, 1)
+	events <- ConnectionEvent{
+		Type:      ConnectionEventTypeDisconnected,
+		Connected: false,
+		Err:       eventErr,
+	}
+	close(events)
+
+	callbackCount := 0
+	runner, err := NewRunner(&fakeEventSource{events: events}, controller, func(ctx context.Context, err error) {
+		callbackCount++
+		if !errors.Is(err, eventErr) {
+			t.Fatalf("unexpected callback error: %v", err)
+		}
+	})
+	if err != nil {
+		t.Fatalf("new runner failed: %v", err)
+	}
+	if err := runner.Run(context.Background()); err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+	status := controller.Status()
+	if status.Connected || status.Registered {
+		t.Fatalf("expected disconnected status, got: %+v", status)
+	}
+	if got, want := callbackCount, 1; got != want {
+		t.Fatalf("unexpected callback count: got=%d want=%d", got, want)
+	}
+	if got, want := status.LastErrorKind, "watch_http_status"; got != want {
+		t.Fatalf("unexpected last error kind: got=%s want=%s", got, want)
 	}
 }
 
@@ -199,7 +222,7 @@ func TestRunnerIgnoresHeartbeatEvents(t *testing.T) {
 type failingClient struct{}
 
 // Register 始终返回错误，模拟 sidecar-agent 不可接受注册。
-func (c *failingClient) Register(ctx context.Context, request RegisterRequest) error {
+func (c *failingClient) Register(ctx context.Context, request *ServiceNode) error {
 	return errors.New("register failed")
 }
 

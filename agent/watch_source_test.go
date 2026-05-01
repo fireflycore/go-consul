@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -293,6 +294,124 @@ func TestWatchSourceSubscribeEmitsRepeatedDisconnectedEvents(t *testing.T) {
 	}
 }
 
+// TestWatchSourceSubscribeRequiresURL 验证空 watch URL 会在订阅前直接返回错误。
+func TestWatchSourceSubscribeRequiresURL(t *testing.T) {
+	source := NewWatchSource("", 10*time.Millisecond)
+	if _, err := source.Subscribe(context.Background()); !errors.Is(err, ErrWatchURLRequired) {
+		t.Fatalf("expected ErrWatchURLRequired, got: %v", err)
+	}
+}
+
+// TestWatchSourceSubscribeWithCanceledContextClosesQuietly 验证已取消上下文下订阅协程会安静退出。
+func TestWatchSourceSubscribeWithCanceledContextClosesQuietly(t *testing.T) {
+	source := NewWatchSource("http://127.0.0.1:65535/watch", 10*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	events, err := source.Subscribe(ctx)
+	if err != nil {
+		t.Fatalf("subscribe failed: %v", err)
+	}
+	select {
+	case _, ok := <-events:
+		if ok {
+			t.Fatal("expected closed events channel")
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("expected events channel to close quickly")
+	}
+}
+
+// TestWatchSourceWatchOnceParsesLastFrameWithoutTrailingBlank 验证最后一帧即使没有额外空行也会被派发。
+func TestWatchSourceWatchOnceParsesLastFrameWithoutTrailingBlank(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		flusher, ok := writer.(http.Flusher)
+		if !ok {
+			t.Fatal("expected flusher")
+		}
+		_, _ = writer.Write([]byte(": keepalive\n"))
+		_, _ = writer.Write([]byte("invalid-line-without-colon\n"))
+		_, _ = writer.Write([]byte("event: connected\n"))
+		_, _ = writer.Write([]byte("id: final-1\n"))
+		_, _ = writer.Write([]byte("data: ok"))
+		flusher.Flush()
+	}))
+	defer server.Close()
+
+	events := make(chan ConnectionEvent, 2)
+	source := NewWatchSource(server.URL, 10*time.Millisecond)
+	err := source.watchOnce(context.Background(), events)
+	if !errors.Is(err, ErrWatchStreamClosed) {
+		t.Fatalf("expected stream closed error, got: %v", err)
+	}
+	event := <-events
+	if event.Type != ConnectionEventTypeConnected || event.EventId != "final-1" {
+		t.Fatalf("unexpected parsed last frame event: %+v", event)
+	}
+}
+
+// TestWatchSourceWatchOnceStopsOnCanceledContext 验证读取过程中上下文取消会及时终止。
+func TestWatchSourceWatchOnceStopsOnCanceledContext(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		flusher, ok := writer.(http.Flusher)
+		if !ok {
+			t.Fatal("expected flusher")
+		}
+		_, _ = writer.Write([]byte("event: connected\n"))
+		_, _ = writer.Write([]byte("data: ok\n\n"))
+		flusher.Flush()
+		time.Sleep(100 * time.Millisecond)
+	}))
+	defer server.Close()
+
+	source := NewWatchSource(server.URL, 10*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
+	events := make(chan ConnectionEvent, 2)
+	done := make(chan error, 1)
+	go func() {
+		done <- source.watchOnce(ctx, events)
+	}()
+	<-events
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context canceled, got: %v", err)
+	}
+}
+
+// TestWatchSourceWatchOnceReturnsRequestBuildError 验证非法 URL 会在构造请求阶段失败。
+func TestWatchSourceWatchOnceReturnsRequestBuildError(t *testing.T) {
+	source := NewWatchSource("://bad-url", 10*time.Millisecond)
+	if err := source.watchOnce(context.Background(), make(chan ConnectionEvent, 1)); err == nil {
+		t.Fatal("expected request build error")
+	}
+}
+
+// TestWatchSourceWatchOnceReturnsScannerError 验证超长帧会透传 scanner 读取错误。
+func TestWatchSourceWatchOnceReturnsScannerError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		flusher, ok := writer.(http.Flusher)
+		if !ok {
+			t.Fatal("expected flusher")
+		}
+		_, _ = writer.Write([]byte("data: "))
+		_, _ = writer.Write([]byte(strings.Repeat("x", 70*1024)))
+		_, _ = writer.Write([]byte("\n\n"))
+		flusher.Flush()
+	}))
+	defer server.Close()
+
+	source := NewWatchSource(server.URL, 10*time.Millisecond)
+	err := source.watchOnce(context.Background(), make(chan ConnectionEvent, 1))
+	if err == nil {
+		t.Fatal("expected scanner error")
+	}
+	if errors.Is(err, ErrWatchStreamClosed) {
+		t.Fatalf("expected scanner error, got stream closed: %v", err)
+	}
+}
+
 // TestEmitWatchEventIgnoresEmptyFrame 验证纯空帧不会输出任何事件。
 func TestEmitWatchEventIgnoresEmptyFrame(t *testing.T) {
 	ctx := context.Background()
@@ -318,5 +437,29 @@ func TestEmitWatchEventReturnsParseErrorForMalformedStructuredPayload(t *testing
 	}
 	if parseErr.EventType != "connected" || parseErr.EventId != "42" {
 		t.Fatalf("unexpected parse error payload: %+v", parseErr)
+	}
+}
+
+// TestEmitWatchEventIgnoresUnknownMessage 验证未知 message 帧会被静默忽略。
+func TestEmitWatchEventIgnoresUnknownMessage(t *testing.T) {
+	ctx := context.Background()
+	events := make(chan ConnectionEvent, 1)
+	if err := emitWatchEvent(ctx, events, "", "ignored-1", []string{"not-ok"}); err != nil {
+		t.Fatalf("unexpected emit error: %v", err)
+	}
+	select {
+	case event := <-events:
+		t.Fatalf("expected no event, got: %+v", event)
+	default:
+	}
+}
+
+// TestEmitWatchEventReturnsContextError 验证派发阶段若上下文已取消会返回取消错误。
+func TestEmitWatchEventReturnsContextError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	events := make(chan ConnectionEvent)
+	if err := emitWatchEvent(ctx, events, "connected", "evt-1", []string{"ok"}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context canceled, got: %v", err)
 	}
 }

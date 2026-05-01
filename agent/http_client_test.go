@@ -28,10 +28,7 @@ func TestHttpClientRegister(t *testing.T) {
 	// 创建待测 client。
 	client := NewHttpClient(server.URL, time.Second)
 	// 发起一次注册请求。
-	if err := client.PostJSON(context.Background(), "/register", RegisterRequest{
-		Name: "auth",
-		Port: 9090,
-	}); err != nil {
+	if err := client.PostJSON(context.Background(), "/register", testServiceNode("auth", 9090)); err != nil {
 		t.Fatalf("register failed: %v", err)
 	}
 	// 注册请求应真正命中服务端。
