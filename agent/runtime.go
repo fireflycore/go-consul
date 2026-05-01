@@ -69,9 +69,12 @@ func NewRunner(source EventSource, controller *Controller, onError ErrorHandler)
 	default:
 		// 依赖齐备时返回可直接运行的事件驱动器。
 		return &Runner{
-			source:     source,
+			// 保存事件源，供后续订阅连接事件。
+			source: source,
+			// 保存控制器，供后续驱动 register replay。
 			controller: controller,
-			onError:    onError,
+			// 保存错误回调，供非致命错误透传给业务侧。
+			onError: onError,
 		}, nil
 	}
 }
@@ -80,6 +83,7 @@ func NewRunner(source EventSource, controller *Controller, onError ErrorHandler)
 func (r *Runner) Run(ctx context.Context) error {
 	// 先向事件源订阅连接事件流。
 	events, err := r.source.Subscribe(ctx)
+	// 如果订阅阶段就失败，则直接返回，让上层决定是否重试。
 	if err != nil {
 		return err
 	}
@@ -87,6 +91,7 @@ func (r *Runner) Run(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
+			// 上下文结束时，直接退出运行循环并透传取消原因。
 			return ctx.Err()
 		case event, ok := <-events:
 			if !ok {
