@@ -36,11 +36,11 @@ go test ./agent -run=^$ -bench=. -benchmem
 ## 5. 当前结果
 
 ```text
-BenchmarkControllerStatusParallel-8             12575287                94.14 ns/op            0 B/op          0 allocs/op
-BenchmarkControllerObserveEventParallel-8        5000434               242.7 ns/op            63 B/op          2 allocs/op
-BenchmarkRunnerProcessEventBurst/16_events-8      181756              6479 ns/op            6042 B/op         95 allocs/op
-BenchmarkRunnerProcessEventBurst/128_events-8      32721             39704 ns/op           31716 B/op        393 allocs/op
-BenchmarkRunnerProcessEventBurst/512_events-8       7947            140696 ns/op          119805 B/op       1417 allocs/op
+BenchmarkControllerStatusParallel-8             13688576                88.17 ns/op            0 B/op          0 allocs/op
+BenchmarkControllerObserveEventParallel-8        5219928               225.0 ns/op            63 B/op          2 allocs/op
+BenchmarkRunnerProcessEventBurst/16_events-8      182486              6516 ns/op            6042 B/op         95 allocs/op
+BenchmarkRunnerProcessEventBurst/128_events-8      32540             36849 ns/op           31715 B/op        393 allocs/op
+BenchmarkRunnerProcessEventBurst/512_events-8       8282            140149 ns/op          119806 B/op       1417 allocs/op
 ```
 
 ## 6. 结果解读
@@ -56,14 +56,14 @@ BenchmarkRunnerProcessEventBurst/512_events-8       7947            140696 ns/op
 ## 7. 本轮优化观察
 
 - `RunnerProcessEventBurst/16_events`
-  - `7481 ns/op -> 6479 ns/op`
+  - `7481 ns/op -> 6516 ns/op`
   - `131 allocs/op -> 95 allocs/op`
 - `RunnerProcessEventBurst/128_events`
   - `429 allocs/op -> 393 allocs/op`
 - `RunnerProcessEventBurst/512_events`
   - `1453 allocs/op -> 1417 allocs/op`
 - `ControllerStatusParallel`
-  - `96.27 ns/op -> 94.14 ns/op`
+  - `96.27 ns/op -> 88.17 ns/op`
 
 这些收益主要来自 `ServiceNode` 构造与 gRPC method path 提取成本下降，以及结构化 watch payload 的指针池复用。
 

@@ -49,9 +49,9 @@
 退出阶段：
 
 1. 业务服务调用 `Shutdown(ctx)`，或 `Run(ctx)` 在退出路径中自动执行
-2. `Agent` 先 `Drain`
-3. 再 `Deregister`
-4. 最后由业务服务自己的 `Shutdown` 回调完成本地服务收尾
+2. 如果配置了业务 `Shutdown` 回调，`Agent` 会先执行业务侧本地收尾
+3. 如果配置了 `GracePeriod`，`Agent` 再向 sidecar 发起 `Drain`
+4. 最后执行 `Deregister`
 
 ## 对业务服务提供的功能
 
