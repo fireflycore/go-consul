@@ -12,7 +12,9 @@ type ApiClient struct {
 
 // NewApiClient 创建一个新的本地 HTTP JSON client。
 func NewApiClient(client *HttpClient) *ApiClient {
+	// 返回一个只负责封装 sidecar 管理接口语义的轻量客户端。
 	return &ApiClient{
+		// 底层复用统一的 HTTP JSON 发送器。
 		client: client,
 	}
 }
