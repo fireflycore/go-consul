@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,57 +13,68 @@ import (
 	"time"
 )
 
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
+}
+
+func newSSEOKResponse(body string) *http.Response {
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Status:     http.StatusText(http.StatusOK),
+		Header: http.Header{
+			"Content-Type": []string{"text/event-stream"},
+		},
+		Body: io.NopCloser(strings.NewReader(body)),
+	}
+}
+
 // TestWatchSourceParsesStructuredSSE 验证 watch 事件源会解析结构化 SSE 并区分 heartbeat。
 func TestWatchSourceParsesStructuredSSE(t *testing.T) {
 	connectedReady := true
 	connectedAt := time.Now().UTC()
 	heartbeatAt := connectedAt.Add(5 * time.Second)
-	// 创建一个最小 SSE 服务端，先输出 connected 和 heartbeat，再主动关闭连接。
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		// 仅允许客户端以 GET 方式建立 watch 长连接。
-		if request.Method != http.MethodGet {
-			t.Fatalf("unexpected method: %s", request.Method)
-		}
-		// 设置 SSE 必需响应头。
-		writer.Header().Set("Content-Type", "text/event-stream")
-		flusher, ok := writer.(http.Flusher)
-		if !ok {
-			t.Fatal("expected flusher")
-		}
-		connectedPayload, _ := json.Marshal(watchEventPayload{
-			Event:          ConnectionEventTypeConnected,
-			Message:        "watch stream established",
-			Service:        "sidecar-agent",
-			Status:         "ready",
-			LifecycleState: "running",
-			Ready:          &connectedReady,
-			GeneratedAt:    &connectedAt,
-		})
-		heartbeatPayload, _ := json.Marshal(watchEventPayload{
-			Event:          ConnectionEventTypeHeartbeat,
-			Message:        "watch stream is alive",
-			Service:        "sidecar-agent",
-			Status:         "ready",
-			LifecycleState: "running",
-			Ready:          &connectedReady,
-			GeneratedAt:    &heartbeatAt,
-		})
-		_, _ = writer.Write([]byte("id: 1\n"))
-		_, _ = writer.Write([]byte("event: connected\n"))
-		_, _ = writer.Write([]byte("data: "))
-		_, _ = writer.Write(connectedPayload)
-		_, _ = writer.Write([]byte("\n\n"))
-		_, _ = writer.Write([]byte("id: 2\n"))
-		_, _ = writer.Write([]byte("event: heartbeat\n"))
-		_, _ = writer.Write([]byte("data: "))
-		_, _ = writer.Write(heartbeatPayload)
-		_, _ = writer.Write([]byte("\n\n"))
-		flusher.Flush()
-	}))
-	// 在测试结束时关闭服务端。
-	defer server.Close()
+	connectedPayload, _ := json.Marshal(watchEventPayload{
+		Event:          ConnectionEventTypeConnected,
+		Message:        "watch stream established",
+		Service:        "sidecar-agent",
+		Status:         "ready",
+		LifecycleState: "running",
+		Ready:          &connectedReady,
+		GeneratedAt:    &connectedAt,
+	})
+	heartbeatPayload, _ := json.Marshal(watchEventPayload{
+		Event:          ConnectionEventTypeHeartbeat,
+		Message:        "watch stream is alive",
+		Service:        "sidecar-agent",
+		Status:         "ready",
+		LifecycleState: "running",
+		Ready:          &connectedReady,
+		GeneratedAt:    &heartbeatAt,
+	})
+	var callCount atomic.Int32
 	// 创建待测 watch 事件源。
-	source := NewWatchSource(server.URL, 10*time.Millisecond)
+	source := NewWatchSource("http://sidecar.local/watch", 10*time.Millisecond)
+	source.client = &http.Client{
+		Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			if request.Method != http.MethodGet {
+				t.Fatalf("unexpected method: %s", request.Method)
+			}
+			if got := request.Header.Get("Accept"); got != "text/event-stream" {
+				t.Fatalf("unexpected accept header: %q", got)
+			}
+			callCount.Add(1)
+			return newSSEOKResponse(
+				"id: 1\n" +
+					"event: connected\n" +
+					"data: " + string(connectedPayload) + "\n\n" +
+					"id: 2\n" +
+					"event: heartbeat\n" +
+					"data: " + string(heartbeatPayload) + "\n\n",
+			), nil
+		}),
+	}
 	// 创建带超时上下文，避免测试阻塞。
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
@@ -90,19 +102,21 @@ func TestWatchSourceParsesStructuredSSE(t *testing.T) {
 	if second.EventId != "2" {
 		t.Fatalf("unexpected heartbeat event id: %+v", second)
 	}
-	// 后续应至少收到一条 disconnected 事件。
-	for event := range events {
-		if event.Type == ConnectionEventTypeDisconnected && !event.Connected {
-			return
-		}
+	// 当前轮流结束后应收到一条 disconnected 事件，再进入下一轮重连。
+	third := <-events
+	if third.Type != ConnectionEventTypeDisconnected || third.Connected {
+		t.Fatalf("expected disconnected event after stream closed, got: %+v", third)
 	}
-	t.Fatal("expected a disconnected event after stream closed")
+	if got := callCount.Load(); got < 1 {
+		t.Fatalf("expected at least one watch request, got=%d", got)
+	}
 }
 
 // TestWatchSourceSupportsLegacyConnectedFrame 验证旧版 `event: connected + data: ok` 仍可兼容。
 func TestWatchSourceSupportsLegacyConnectedFrame(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "text/event-stream")
+		writer.Header().Set("Connection", "close")
 		flusher, ok := writer.(http.Flusher)
 		if !ok {
 			t.Fatal("expected flusher")
@@ -144,18 +158,12 @@ func TestWatchSourceReturnsHTTPStatusError(t *testing.T) {
 
 // TestWatchSourceReturnsStreamClosedError 验证 EOF 会被分类为可识别的 stream closed 错误。
 func TestWatchSourceReturnsStreamClosedError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		writer.Header().Set("Content-Type", "text/event-stream")
-		flusher, ok := writer.(http.Flusher)
-		if !ok {
-			t.Fatal("expected flusher")
-		}
-		_, _ = writer.Write([]byte("event: connected\n"))
-		_, _ = writer.Write([]byte("data: ok\n\n"))
-		flusher.Flush()
-	}))
-	defer server.Close()
-	source := NewWatchSource(server.URL, 10*time.Millisecond)
+	source := NewWatchSource("http://sidecar.local/watch", 10*time.Millisecond)
+	source.client = &http.Client{
+		Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			return newSSEOKResponse("event: connected\ndata: ok\n\n"), nil
+		}),
+	}
 	err := source.watchOnce(context.Background(), make(chan ConnectionEvent, 2))
 	if !errors.Is(err, ErrWatchStreamClosed) {
 		t.Fatalf("expected ErrWatchStreamClosed, got: %v", err)
@@ -323,23 +331,13 @@ func TestWatchSourceSubscribeWithCanceledContextClosesQuietly(t *testing.T) {
 
 // TestWatchSourceWatchOnceParsesLastFrameWithoutTrailingBlank 验证最后一帧即使没有额外空行也会被派发。
 func TestWatchSourceWatchOnceParsesLastFrameWithoutTrailingBlank(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		writer.Header().Set("Content-Type", "text/event-stream")
-		flusher, ok := writer.(http.Flusher)
-		if !ok {
-			t.Fatal("expected flusher")
-		}
-		_, _ = writer.Write([]byte(": keepalive\n"))
-		_, _ = writer.Write([]byte("invalid-line-without-colon\n"))
-		_, _ = writer.Write([]byte("event: connected\n"))
-		_, _ = writer.Write([]byte("id: final-1\n"))
-		_, _ = writer.Write([]byte("data: ok"))
-		flusher.Flush()
-	}))
-	defer server.Close()
-
 	events := make(chan ConnectionEvent, 2)
-	source := NewWatchSource(server.URL, 10*time.Millisecond)
+	source := NewWatchSource("http://sidecar.local/watch", 10*time.Millisecond)
+	source.client = &http.Client{
+		Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			return newSSEOKResponse(": keepalive\ninvalid-line-without-colon\nevent: connected\nid: final-1\ndata: ok"), nil
+		}),
+	}
 	err := source.watchOnce(context.Background(), events)
 	if !errors.Is(err, ErrWatchStreamClosed) {
 		t.Fatalf("expected stream closed error, got: %v", err)
@@ -387,28 +385,33 @@ func TestWatchSourceWatchOnceReturnsRequestBuildError(t *testing.T) {
 	}
 }
 
-// TestWatchSourceWatchOnceReturnsScannerError 验证超长帧会透传 scanner 读取错误。
-func TestWatchSourceWatchOnceReturnsScannerError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		writer.Header().Set("Content-Type", "text/event-stream")
-		flusher, ok := writer.(http.Flusher)
-		if !ok {
-			t.Fatal("expected flusher")
-		}
-		_, _ = writer.Write([]byte("data: "))
-		_, _ = writer.Write([]byte(strings.Repeat("x", 70*1024)))
-		_, _ = writer.Write([]byte("\n\n"))
-		flusher.Flush()
-	}))
-	defer server.Close()
-
-	source := NewWatchSource(server.URL, 10*time.Millisecond)
-	err := source.watchOnce(context.Background(), make(chan ConnectionEvent, 1))
-	if err == nil {
-		t.Fatal("expected scanner error")
+// TestWatchSourceWatchOnceSupportsLargeFrame 验证超长帧不会再被默认 64K 限制截断。
+func TestWatchSourceWatchOnceSupportsLargeFrame(t *testing.T) {
+	largeMessage := strings.Repeat("x", 70*1024)
+	largePayload, err := json.Marshal(watchEventPayload{
+		Event:   ConnectionEventTypeConnected,
+		Message: largeMessage,
+	})
+	if err != nil {
+		t.Fatalf("marshal payload failed: %v", err)
 	}
-	if errors.Is(err, ErrWatchStreamClosed) {
-		t.Fatalf("expected scanner error, got stream closed: %v", err)
+	events := make(chan ConnectionEvent, 1)
+	source := NewWatchSource("http://sidecar.local/watch", 10*time.Millisecond)
+	source.client = &http.Client{
+		Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			return newSSEOKResponse("event: connected\ndata: " + string(largePayload) + "\n\n"), nil
+		}),
+	}
+	err = source.watchOnce(context.Background(), events)
+	if !errors.Is(err, ErrWatchStreamClosed) {
+		t.Fatalf("expected stream closed error, got: %v", err)
+	}
+	event := <-events
+	if event.Type != ConnectionEventTypeConnected || !event.Connected {
+		t.Fatalf("expected connected event, got: %+v", event)
+	}
+	if event.Message != largeMessage {
+		t.Fatalf("unexpected large message length: got=%d want=%d", len(event.Message), len(largeMessage))
 	}
 }
 
@@ -461,5 +464,18 @@ func TestEmitWatchEventReturnsContextError(t *testing.T) {
 	events := make(chan ConnectionEvent)
 	if err := emitWatchEvent(ctx, events, "connected", "evt-1", []string{"ok"}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context canceled, got: %v", err)
+	}
+}
+
+// TestTrimSSEFieldValue 验证 SSE 字段值只会裁掉一个可选前导空格。
+func TestTrimSSEFieldValue(t *testing.T) {
+	if got := trimSSEFieldValue(" hello"); got != "hello" {
+		t.Fatalf("expected one leading space to be trimmed, got: %q", got)
+	}
+	if got := trimSSEFieldValue("  hello"); got != " hello" {
+		t.Fatalf("expected only one leading space to be trimmed, got: %q", got)
+	}
+	if got := trimSSEFieldValue("\thello"); got != "\thello" {
+		t.Fatalf("expected non-space prefix to be preserved, got: %q", got)
 	}
 }
