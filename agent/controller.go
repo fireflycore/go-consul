@@ -3,115 +3,105 @@ package agent
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 )
 
-// DescriptorProvider 抽象业务服务注册描述的构造能力。
-type DescriptorProvider interface {
-	// BuildRegisterRequest 返回当前业务服务完整注册描述。
-	BuildRegisterRequest(ctx context.Context) (RegisterRequest, error)
-}
-
 // Client 抽象本机 sidecar-agent 的最小交互能力。
 type Client interface {
 	// Register 负责把当前服务注册到本机 sidecar-agent。
-	Register(ctx context.Context, request RegisterRequest) error
+	Register(ctx context.Context, request *ServiceNode) error
 	// Drain 负责把当前服务切换到摘流状态。
 	Drain(ctx context.Context, request DrainRequest) error
 	// Deregister 负责把当前服务从本机 sidecar-agent 注销。
 	Deregister(ctx context.Context, request DeregisterRequest) error
 }
 
-// Controller 负责在业务服务侧缓存注册描述，并在连接恢复后重放 register。
+// Controller 负责在业务服务侧持有固定 ServiceNode，并在连接恢复后重放 register。
 type Controller struct {
 	// client 保存与本机 sidecar-agent 交互的传输实现。
 	client Client
-	// provider 负责为当前业务服务构造标准注册描述。
-	provider DescriptorProvider
+	// node 保存当前业务服务约定好的核心模型。
+	node *ServiceNode
 
-	// mu 保护最近一次注册描述与状态快照。
+	// mu 保护状态快照。
 	mu sync.RWMutex
-	// last 保存最近一次成功构造的注册请求，供 drain 与 deregister 复用。
-	last *RegisterRequest
 	// status 保存当前控制器状态，供运行时观测使用。
 	status Status
 }
 
 // NewController 创建一个新的业务侧 agent 联动控制器。
-func NewController(client Client, provider DescriptorProvider) (*Controller, error) {
-	// 对依赖做最小非空校验，避免控制器以不完整状态运行。
+func NewController(client Client, node *ServiceNode) (*Controller, error) {
 	switch {
 	case client == nil:
 		return nil, errors.New("agent client is required")
-	case provider == nil:
-		return nil, errors.New("descriptor provider is required")
+	case node == nil:
+		return nil, errors.New("service node is required")
+	case node.ServiceOptions == nil:
+		return nil, errors.New("service options are required")
+	case node.Service.Name == "":
+		return nil, errors.New("service name is required")
+	case node.ServerPort == 0:
+		return nil, errors.New("service port is required")
 	default:
-		// 依赖齐备时返回一个可直接使用的控制器。
 		return &Controller{
-			client:   client,
-			provider: provider,
+			client: client,
+			node:   node,
+			status: Status{
+				LastServiceName: node.Service.Name,
+				LastServicePort: int(node.ServerPort),
+			},
 		}, nil
 	}
 }
 
 // OnConnected 在本机 agent 连接建立或恢复时重放 register。
 func (c *Controller) OnConnected(ctx context.Context) error {
-	// 先从 provider 构造一份最新注册描述。
-	request, err := c.provider.BuildRegisterRequest(ctx)
-	if err != nil {
-		// 把 provider 构造失败包装成更直接的 register replay 上下文错误。
-		wrappedErr := fmt.Errorf("build register request failed: %w", err)
-		// 在返回前把错误写入状态快照，便于业务侧直接查看最近失败原因。
-		c.RecordError(wrappedErr)
-		// 将包装后的错误返回给运行时，由运行时统一决定是否继续恢复流程。
-		return wrappedErr
-	}
-	// 再通过 client 把注册请求发给本机 sidecar-agent。
-	if err := c.client.Register(ctx, request); err != nil {
-		// 把底层注册失败包装成带服务名与端口的重放错误，便于直接定位失败实例。
+	// 连接恢复后，先基于固定 ServiceNode 重放一次 register。
+	if err := c.client.Register(ctx, c.node); err != nil {
+		// 如果重放失败，则先包装成带服务上下文的稳定错误类型。
 		replayErr := &RegisterReplayError{
-			ServiceName: request.Name,
-			ServicePort: request.Port,
-			Err:         err,
+			// 记录当前失败的逻辑服务名，便于日志和状态统一展示。
+			ServiceName: c.node.Service.Name,
+			// 记录当前失败的服务端口，便于唯一定位实例。
+			ServicePort: int(c.node.ServerPort),
+			// 保留底层注册失败原因，供上层继续解包。
+			Err: err,
 		}
-		// 写锁保护状态快照，避免和外部读取并发冲突。
+		// 写锁保护失败状态更新，避免和状态读取方并发冲突。
 		c.mu.Lock()
-		// 记录一次 register replay 失败次数，供恢复链路排障使用。
+		// 累加 register replay 失败次数，便于观测恢复链路稳定性。
 		c.status.RegisterReplayFailureCount++
-		// 即使失败也保留最近尝试重放的服务名，便于定位具体服务。
-		c.status.LastServiceName = request.Name
-		// 同步保留最近尝试重放的服务端口。
-		c.status.LastServicePort = request.Port
-		// 把包装后的失败错误写入统一状态快照。
+		// 即使失败，也更新最近一次参与重放的服务名。
+		c.status.LastServiceName = c.node.Service.Name
+		// 即使失败，也更新最近一次参与重放的服务端口。
+		c.status.LastServicePort = int(c.node.ServerPort)
+		// 把失败错误和失败时间写入统一状态快照。
 		c.recordErrorLocked(replayErr, time.Now().UTC())
-		// 完成本次失败状态写入后立即释放锁。
+		// 失败状态写完后立即释放锁。
 		c.mu.Unlock()
-		// 将带上下文的失败错误返回给运行时。
+		// 把带上下文的重放错误直接返回给上层。
 		return replayErr
 	}
-	// 注册成功后把最新请求与状态写回控制器缓存。
+	// register 重放成功后，开始更新连接成功状态。
 	c.mu.Lock()
-	// 函数结束前统一释放写锁，保证状态更新原子可见。
+	// 在函数退出前释放锁，确保成功状态完整写入。
 	defer c.mu.Unlock()
-	// 记录本次连接恢复并重放成功的标准时间。
+	// 统一使用当前 UTC 时间记录本次连接恢复时间。
 	now := time.Now().UTC()
-	// 缓存最近一次成功注册请求，后续 drain / deregister 会复用它。
-	c.last = &request
-	// 重放成功后将连接状态标记为已连接。
+	// 连接恢复后标记当前已连上本机 sidecar-agent。
 	c.status.Connected = true
-	// 同时标记最近一次 register 已成功完成。
+	// register 成功后标记当前实例已重新接管成功。
 	c.status.Registered = true
-	// 回写最近一次成功接管的服务名。
-	c.status.LastServiceName = request.Name
-	// 回写最近一次成功接管的服务端口。
-	c.status.LastServicePort = request.Port
-	// 保存最近一次成功建立或恢复连接的时间。
+	// 更新最近一次成功注册的服务名。
+	c.status.LastServiceName = c.node.Service.Name
+	// 更新最近一次成功注册的服务端口。
+	c.status.LastServicePort = int(c.node.ServerPort)
+	// 记录最近一次连接恢复成功时间。
 	c.status.LastConnectedAt = formatStatusTime(now)
-	// 累加成功的 register replay 次数，便于查看恢复频率。
+	// 累加成功 register replay 次数。
 	c.status.RegisterReplayCount++
-	// 返回 nil 表示本轮恢复已经成功接管业务实例。
+	// 所有状态更新完成后返回成功。
 	return nil
 }
 
@@ -133,44 +123,14 @@ func (c *Controller) OnDisconnected() {
 	c.status.LastDisconnectedAt = formatStatusTime(now)
 }
 
-// Drain 使用最近一次成功注册的服务描述发起摘流。
+// Drain 使用固定 ServiceNode 发起摘流。
 func (c *Controller) Drain(ctx context.Context, gracePeriod string) error {
-	// 先读取最近一次成功注册的服务描述。
-	c.mu.RLock()
-	request := c.last
-	c.mu.RUnlock()
-	// 若当前还没有完成过注册，则无法执行摘流。
-	if request == nil {
-		return errors.New("register request is not initialized")
-	}
-	// 复用最近一次注册时的服务名和端口构造摘流请求。
-	return c.client.Drain(ctx, DrainRequest{
-		AppId:         request.App.Id,
-		AppInstanceId: request.App.InstanceId,
-
-		ServiceName: request.Name,
-		GracePeriod: gracePeriod,
-	})
+	return c.client.Drain(ctx, c.node.BuildDrainRequest(gracePeriod))
 }
 
-// Deregister 使用最近一次成功注册的服务描述发起注销。
+// Deregister 使用固定 ServiceNode 发起注销。
 func (c *Controller) Deregister(ctx context.Context) error {
-	// 先读取最近一次成功注册的服务描述。
-	c.mu.RLock()
-	request := c.last
-	c.mu.RUnlock()
-	// 若当前还没有完成过注册，则无法执行注销。
-	if request == nil {
-		return errors.New("register request is not initialized")
-	}
-	// 复用最近一次注册时的服务名和端口构造注销请求。
-	return c.client.Deregister(ctx, DeregisterRequest{
-		AppId:         request.App.Id,
-		AppInstanceId: request.App.InstanceId,
-
-		ServiceName: request.Name,
-		ServicePort: request.ServerPort,
-	})
+	return c.client.Deregister(ctx, c.node.BuildDeregisterRequest())
 }
 
 // Status 返回控制器的当前状态快照。
