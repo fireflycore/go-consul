@@ -24,8 +24,10 @@ func NewHttpClient(baseURL string, timeout time.Duration) *HttpClient {
 	cleanBaseURL := strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	// 返回一个带固定超时的最小 HTTP 客户端封装。
 	return &HttpClient{
+		// 保存规范化后的基础地址，供后续直接拼接路径。
 		baseURL: cleanBaseURL,
 		client: &http.Client{
+			// 为每次管理接口调用设置统一超时上限。
 			Timeout: timeout,
 		},
 	}
@@ -35,11 +37,13 @@ func NewHttpClient(baseURL string, timeout time.Duration) *HttpClient {
 func (c *HttpClient) PostJSON(ctx context.Context, path string, payload any) error {
 	// 先把请求体对象编码成 JSON。
 	body, err := json.Marshal(payload)
+	// 如果编码失败，说明请求模型本身有问题，直接返回。
 	if err != nil {
 		return err
 	}
 	// 基于基础地址和路径构造最终请求 URL。
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(body))
+	// 如果请求对象构造失败，则直接把错误返回给上层。
 	if err != nil {
 		return err
 	}
@@ -47,6 +51,7 @@ func (c *HttpClient) PostJSON(ctx context.Context, path string, payload any) err
 	request.Header.Set("Content-Type", "application/json")
 	// 发送请求到本机 sidecar-agent。
 	response, err := c.client.Do(request)
+	// 如果底层网络请求失败，则直接返回底层错误。
 	if err != nil {
 		return err
 	}
