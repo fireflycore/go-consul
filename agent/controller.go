@@ -158,21 +158,6 @@ func (c *Controller) ObserveEvent(event ConnectionEvent) {
 	c.status.LastEventId = event.EventId
 	// 记录最近一次事件的观测时间。
 	c.status.LastEventAt = formatStatusTime(observedAt)
-	// 记录服务端事件中附带的 sidecar 服务信息，便于联调时快速确认事件来源。
-	c.status.LastSidecarService = event.Service
-	// 记录服务端事件中附带的 sidecar 运行态摘要。
-	c.status.LastSidecarStatus = event.Status
-	// 记录 sidecar 当前生命周期阶段。
-	c.status.LastLifecycleState = event.LifecycleState
-	if event.GeneratedAt != nil {
-		// 服务端若携带生成时间，则保留原始生成时间方便与 sidecar 日志对齐。
-		c.status.LastGeneratedAt = formatStatusTime(event.GeneratedAt.UTC())
-	}
-	if event.Ready != nil {
-		// 只有服务端显式给出 readiness 时才覆盖最近一次 readiness 快照。
-		c.status.ReadyKnown = true
-		c.status.Ready = *event.Ready
-	}
 	if event.Type == ConnectionEventTypeConnected || event.Connected {
 		// 对 connected 事件补记最近一次连接成功时间。
 		c.status.LastConnectedAt = formatStatusTime(observedAt)
