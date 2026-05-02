@@ -1,7 +1,9 @@
 package agent
 
 import (
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/fireflycore/go-micro/app"
@@ -51,8 +53,8 @@ type ServiceOptions struct {
 
 // BuildDNS 基于当前服务配置拼接 sidecar 注册时使用的统一 DNS 地址。
 func (o *ServiceOptions) BuildDNS() string {
-	// demo.default.svc.cluster.local:9090
-	return fmt.Sprintf("%s.%s.%s.%s:%d", o.Service.Name, o.Service.Namespace, o.Service.Type, o.Service.ClusterDomain, o.ServerPort)
+	// sidecar-agent 会基于纯主机名再单独拼接 authority 端口，因此这里不能把端口写进 DNS。
+	return fmt.Sprintf("%s.%s.%s.%s", o.Service.Name, o.Service.Namespace, o.Service.Type, o.Service.ClusterDomain)
 }
 
 // ServiceNode 描述业务服务在裸机场景下的最小注册节点信息。
@@ -98,6 +100,50 @@ func NewServiceNode(options *ServiceOptions, serviceRaw []*grpc.ServiceDesc) *Se
 	return node
 }
 
+// Validate 校验当前业务节点是否满足 sidecar-agent 的最小注册契约。
+func (n *ServiceNode) Validate() error {
+	// 当前节点与基础配置都不能为空。
+	if n == nil {
+		return errors.New("service node is required")
+	}
+	if n.ServiceOptions == nil {
+		return errors.New("service options are required")
+	}
+	required := map[string]string{
+		"app.id":            n.App.Id,
+		"app.instance_id":   n.App.InstanceId,
+		"app.name":          n.App.Name,
+		"app.env":           n.App.Env,
+		"app.version":       n.App.Version,
+		"kernel.language":   n.Kernel.Language,
+		"kernel.version":    n.Kernel.Version,
+		"service.name":      n.Service.Name,
+		"service.namespace": n.Service.Namespace,
+		"protocol":          n.Protocol,
+		"dns":               n.DNS,
+	}
+	for field, value := range required {
+		if strings.TrimSpace(value) == "" {
+			return fmt.Errorf("%s is required", field)
+		}
+	}
+	if n.ServerPort == 0 || n.ServerPort > 65535 {
+		return fmt.Errorf("server_port is invalid: %d", n.ServerPort)
+	}
+	if n.Service.Weight == 0 {
+		return errors.New("service.weight must be greater than zero")
+	}
+	if len(n.Methods) == 0 {
+		return errors.New("methods must not be empty")
+	}
+	for _, method := range n.Methods {
+		if !strings.HasPrefix(strings.TrimSpace(method), "/") {
+			return fmt.Errorf("method is invalid: %s", method)
+		}
+	}
+	return nil
+}
+
 // BuildDrainRequest 从约定好的 ServiceNode 直接导出 sidecar-agent 摘流请求。
 func (n *ServiceNode) BuildDrainRequest(gracePeriod string) DrainRequest {
 	// 如果节点或服务配置为空，则只保留摘流宽限期。
@@ -110,8 +156,6 @@ func (n *ServiceNode) BuildDrainRequest(gracePeriod string) DrainRequest {
 		AppId: n.App.Id,
 		// 透传应用实例 ID，帮助 sidecar 唯一定位业务实例。
 		AppInstanceId: n.App.InstanceId,
-		// 透传逻辑服务名，帮助 sidecar 找到对应服务。
-		ServiceName: n.Service.Name,
 		// 透传调用方指定的摘流宽限期。
 		GracePeriod: gracePeriod,
 	}
@@ -129,9 +173,5 @@ func (n *ServiceNode) BuildDeregisterRequest() DeregisterRequest {
 		AppId: n.App.Id,
 		// 透传应用实例 ID，帮助 sidecar 唯一定位业务实例。
 		AppInstanceId: n.App.InstanceId,
-		// 透传逻辑服务名。
-		ServiceName: n.Service.Name,
-		// 透传业务监听端口。
-		ServicePort: n.ServerPort,
 	}
 }
