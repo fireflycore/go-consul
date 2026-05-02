@@ -108,3 +108,30 @@ func (e *AgentRunError) Unwrap() error {
 	// 返回底层错误，便于调用方做进一步匹配。
 	return e.Err
 }
+
+// SidecarAPIError 表示 sidecar-agent 管理接口返回了非预期状态或失败结果。
+type SidecarAPIError struct {
+	Method     string
+	Path       string
+	StatusCode int
+	Status     string
+	Code       string
+	Message    string
+}
+
+// Error 返回带方法、路径与 sidecar 稳定错误码的可读错误文本。
+func (e *SidecarAPIError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.Code != "" && e.Message != "" {
+		return fmt.Sprintf("sidecar api request failed: %s %s returned %d (%s): %s", e.Method, e.Path, e.StatusCode, e.Code, e.Message)
+	}
+	if e.Code != "" {
+		return fmt.Sprintf("sidecar api request failed: %s %s returned %d (%s)", e.Method, e.Path, e.StatusCode, e.Code)
+	}
+	if e.Status != "" {
+		return fmt.Sprintf("sidecar api request failed: %s %s returned %s", e.Method, e.Path, e.Status)
+	}
+	return fmt.Sprintf("sidecar api request failed: %s %s returned %d", e.Method, e.Path, e.StatusCode)
+}
