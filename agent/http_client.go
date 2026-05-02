@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -16,6 +16,24 @@ type HttpClient struct {
 	baseURL string
 	// client 表示实际发起 HTTP 请求的客户端。
 	client *http.Client
+}
+
+// sidecarRawResponseEnvelope 表示 sidecar 管理接口统一返回的 JSON envelope。
+type sidecarRawResponseEnvelope struct {
+	Success     bool            `json:"success"`
+	Code        string          `json:"code"`
+	Message     string          `json:"message"`
+	Data        json.RawMessage `json:"data"`
+	GeneratedAt time.Time       `json:"generated_at"`
+}
+
+// SidecarResponseMeta 描述一次管理接口响应的公共元信息。
+type SidecarResponseMeta struct {
+	StatusCode  int
+	Success     bool
+	Code        string
+	Message     string
+	GeneratedAt time.Time
 }
 
 // NewHttpClient 创建一个新的本地 HTTP JSON client。
@@ -35,32 +53,96 @@ func NewHttpClient(baseURL string, timeout time.Duration) *HttpClient {
 
 // PostJSON 把任意请求对象编码成 JSON 并发往本机 sidecar-agent。
 func (c *HttpClient) PostJSON(ctx context.Context, path string, payload any) error {
-	// 先把请求体对象编码成 JSON。
-	body, err := json.Marshal(payload)
-	// 如果编码失败，说明请求模型本身有问题，直接返回。
-	if err != nil {
-		return err
+	_, err := c.doJSONRequest(ctx, http.MethodPost, path, payload, nil, http.StatusOK)
+	return err
+}
+
+// GetJSON 向本机 sidecar-agent 发起 GET 请求，并把 data 字段解码到 target。
+func (c *HttpClient) GetJSON(ctx context.Context, path string, target any, acceptedStatusCodes ...int) (SidecarResponseMeta, error) {
+	return c.doJSONRequest(ctx, http.MethodGet, path, nil, target, acceptedStatusCodes...)
+}
+
+// doJSONRequest 统一处理 sidecar-agent 的 JSON envelope 请求与错误解析。
+func (c *HttpClient) doJSONRequest(ctx context.Context, method, path string, payload any, target any, acceptedStatusCodes ...int) (SidecarResponseMeta, error) {
+	var body io.Reader
+	if payload != nil {
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			return SidecarResponseMeta{}, err
+		}
+		body = bytes.NewReader(encoded)
 	}
-	// 基于基础地址和路径构造最终请求 URL。
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(body))
-	// 如果请求对象构造失败，则直接把错误返回给上层。
+	request, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
 	if err != nil {
-		return err
+		return SidecarResponseMeta{}, err
 	}
-	// 显式标记请求体为 JSON。
-	request.Header.Set("Content-Type", "application/json")
-	// 发送请求到本机 sidecar-agent。
+	if payload != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	request.Header.Set("Accept", "application/json")
 	response, err := c.client.Do(request)
-	// 如果底层网络请求失败，则直接返回底层错误。
 	if err != nil {
-		return err
+		return SidecarResponseMeta{}, err
 	}
-	// 在函数结束前关闭响应体，避免连接泄漏。
 	defer response.Body.Close()
-	// 仅接受 200 成功状态码，其他情况统一返回错误。
-	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("agent request failed: %s %s returned %s", http.MethodPost, path, response.Status)
+	responseBody, err := io.ReadAll(response.Body)
+	if err != nil {
+		return SidecarResponseMeta{}, err
 	}
-	// 成功时返回 nil。
-	return nil
+	meta, parseErr := decodeSidecarResponse(responseBody, target)
+	meta.StatusCode = response.StatusCode
+	if parseErr != nil {
+		return meta, parseErr
+	}
+	if isAcceptedStatus(response.StatusCode, acceptedStatusCodes...) {
+		return meta, nil
+	}
+	return meta, &SidecarAPIError{
+		Method:     method,
+		Path:       path,
+		StatusCode: response.StatusCode,
+		Status:     response.Status,
+		Code:       meta.Code,
+		Message:    meta.Message,
+	}
+}
+
+// decodeSidecarResponse 解析 sidecar 的响应 envelope，并把 data 解码进 target。
+func decodeSidecarResponse(body []byte, target any) (SidecarResponseMeta, error) {
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) == 0 {
+		return SidecarResponseMeta{}, nil
+	}
+	var envelope sidecarRawResponseEnvelope
+	if err := json.Unmarshal(trimmed, &envelope); err != nil {
+		if target == nil {
+			return SidecarResponseMeta{}, nil
+		}
+		return SidecarResponseMeta{}, err
+	}
+	meta := SidecarResponseMeta{
+		Success:     envelope.Success,
+		Code:        envelope.Code,
+		Message:     envelope.Message,
+		GeneratedAt: envelope.GeneratedAt,
+	}
+	if target != nil && len(bytes.TrimSpace(envelope.Data)) > 0 {
+		if err := json.Unmarshal(envelope.Data, target); err != nil {
+			return meta, err
+		}
+	}
+	return meta, nil
+}
+
+// isAcceptedStatus 判断当前响应状态码是否属于调用方允许的结果。
+func isAcceptedStatus(statusCode int, acceptedStatusCodes ...int) bool {
+	if len(acceptedStatusCodes) == 0 {
+		return statusCode == http.StatusOK
+	}
+	for _, accepted := range acceptedStatusCodes {
+		if statusCode == accepted {
+			return true
+		}
+	}
+	return false
 }
