@@ -6,28 +6,16 @@ type Status struct {
 	Connected bool
 	// Registered 表示最近一次 register 是否成功完成。
 	Registered bool
-	// Ready 表示最近一次 watch 事件观察到的 sidecar readiness。
-	Ready bool
-	// ReadyKnown 表示最近一次 watch 事件是否带回过 readiness 字段。
-	ReadyKnown bool
 	// LastServiceName 表示最近一次成功注册的服务名。
 	LastServiceName string
 	// LastServicePort 表示最近一次成功注册的服务端口。
 	LastServicePort int
-	// LastSidecarService 表示最近一次 watch 事件携带的 sidecar 服务名。
-	LastSidecarService string
-	// LastSidecarStatus 表示最近一次 watch 事件携带的 sidecar 状态摘要。
-	LastSidecarStatus string
-	// LastLifecycleState 表示最近一次 watch 事件携带的生命周期阶段。
-	LastLifecycleState string
 	// LastEventType 表示最近一次收到的 watch 事件类型。
 	LastEventType string
 	// LastEventId 表示最近一次收到的 SSE 事件 ID。
 	LastEventId string
 	// LastEventAt 表示最近一次事件的观测时间。
 	LastEventAt string
-	// LastGeneratedAt 表示最近一次服务端事件生成时间。
-	LastGeneratedAt string
 	// LastConnectedAt 表示最近一次成功建立或恢复连接的时间。
 	LastConnectedAt string
 	// LastDisconnectedAt 表示最近一次断连的时间。
