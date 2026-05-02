@@ -20,20 +20,17 @@ type HttpClient struct {
 
 // sidecarRawResponseEnvelope 表示 sidecar 管理接口统一返回的 JSON envelope。
 type sidecarRawResponseEnvelope struct {
-	Success     bool            `json:"success"`
-	Code        string          `json:"code"`
-	Message     string          `json:"message"`
-	Data        json.RawMessage `json:"data"`
-	GeneratedAt time.Time       `json:"generated_at"`
+	Success bool   `json:"success"`
+	Code    string `json:"code"`
+	Message string `json:"message"`
 }
 
 // SidecarResponseMeta 描述一次管理接口响应的公共元信息。
 type SidecarResponseMeta struct {
-	StatusCode  int
-	Success     bool
-	Code        string
-	Message     string
-	GeneratedAt time.Time
+	StatusCode int
+	Success    bool
+	Code       string
+	Message    string
 }
 
 // NewHttpClient 创建一个新的本地 HTTP JSON client。
@@ -53,17 +50,12 @@ func NewHttpClient(baseURL string, timeout time.Duration) *HttpClient {
 
 // PostJSON 把任意请求对象编码成 JSON 并发往本机 sidecar-agent。
 func (c *HttpClient) PostJSON(ctx context.Context, path string, payload any) error {
-	_, err := c.doJSONRequest(ctx, http.MethodPost, path, payload, nil, http.StatusOK)
+	_, err := c.doJSONRequest(ctx, http.MethodPost, path, payload)
 	return err
 }
 
-// GetJSON 向本机 sidecar-agent 发起 GET 请求，并把 data 字段解码到 target。
-func (c *HttpClient) GetJSON(ctx context.Context, path string, target any, acceptedStatusCodes ...int) (SidecarResponseMeta, error) {
-	return c.doJSONRequest(ctx, http.MethodGet, path, nil, target, acceptedStatusCodes...)
-}
-
 // doJSONRequest 统一处理 sidecar-agent 的 JSON envelope 请求与错误解析。
-func (c *HttpClient) doJSONRequest(ctx context.Context, method, path string, payload any, target any, acceptedStatusCodes ...int) (SidecarResponseMeta, error) {
+func (c *HttpClient) doJSONRequest(ctx context.Context, method, path string, payload any) (SidecarResponseMeta, error) {
 	var body io.Reader
 	if payload != nil {
 		encoded, err := json.Marshal(payload)
@@ -89,12 +81,12 @@ func (c *HttpClient) doJSONRequest(ctx context.Context, method, path string, pay
 	if err != nil {
 		return SidecarResponseMeta{}, err
 	}
-	meta, parseErr := decodeSidecarResponse(responseBody, target)
+	meta, parseErr := decodeSidecarResponse(responseBody)
 	meta.StatusCode = response.StatusCode
 	if parseErr != nil {
 		return meta, parseErr
 	}
-	if isAcceptedStatus(response.StatusCode, acceptedStatusCodes...) {
+	if response.StatusCode == http.StatusOK {
 		return meta, nil
 	}
 	return meta, &SidecarAPIError{
@@ -107,42 +99,19 @@ func (c *HttpClient) doJSONRequest(ctx context.Context, method, path string, pay
 	}
 }
 
-// decodeSidecarResponse 解析 sidecar 的响应 envelope，并把 data 解码进 target。
-func decodeSidecarResponse(body []byte, target any) (SidecarResponseMeta, error) {
+// decodeSidecarResponse 解析 sidecar 的响应 envelope，并提取公共元信息。
+func decodeSidecarResponse(body []byte) (SidecarResponseMeta, error) {
 	trimmed := bytes.TrimSpace(body)
 	if len(trimmed) == 0 {
 		return SidecarResponseMeta{}, nil
 	}
 	var envelope sidecarRawResponseEnvelope
 	if err := json.Unmarshal(trimmed, &envelope); err != nil {
-		if target == nil {
-			return SidecarResponseMeta{}, nil
-		}
-		return SidecarResponseMeta{}, err
+		return SidecarResponseMeta{}, nil
 	}
-	meta := SidecarResponseMeta{
-		Success:     envelope.Success,
-		Code:        envelope.Code,
-		Message:     envelope.Message,
-		GeneratedAt: envelope.GeneratedAt,
-	}
-	if target != nil && len(bytes.TrimSpace(envelope.Data)) > 0 {
-		if err := json.Unmarshal(envelope.Data, target); err != nil {
-			return meta, err
-		}
-	}
-	return meta, nil
-}
-
-// isAcceptedStatus 判断当前响应状态码是否属于调用方允许的结果。
-func isAcceptedStatus(statusCode int, acceptedStatusCodes ...int) bool {
-	if len(acceptedStatusCodes) == 0 {
-		return statusCode == http.StatusOK
-	}
-	for _, accepted := range acceptedStatusCodes {
-		if statusCode == accepted {
-			return true
-		}
-	}
-	return false
+	return SidecarResponseMeta{
+		Success: envelope.Success,
+		Code:    envelope.Code,
+		Message: envelope.Message,
+	}, nil
 }
