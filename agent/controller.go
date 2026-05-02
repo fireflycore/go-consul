@@ -39,11 +39,10 @@ func NewController(client Client, node *ServiceNode) (*Controller, error) {
 		return nil, errors.New("service node is required")
 	case node.ServiceOptions == nil:
 		return nil, errors.New("service options are required")
-	case node.Service.Name == "":
-		return nil, errors.New("service name is required")
-	case node.ServerPort == 0:
-		return nil, errors.New("service port is required")
 	default:
+		if err := node.Validate(); err != nil {
+			return nil, err
+		}
 		return &Controller{
 			client: client,
 			node:   node,
@@ -159,6 +158,21 @@ func (c *Controller) ObserveEvent(event ConnectionEvent) {
 	c.status.LastEventId = event.EventId
 	// 记录最近一次事件的观测时间。
 	c.status.LastEventAt = formatStatusTime(observedAt)
+	// 记录服务端事件中附带的 sidecar 服务信息，便于联调时快速确认事件来源。
+	c.status.LastSidecarService = event.Service
+	// 记录服务端事件中附带的 sidecar 运行态摘要。
+	c.status.LastSidecarStatus = event.Status
+	// 记录 sidecar 当前生命周期阶段。
+	c.status.LastLifecycleState = event.LifecycleState
+	if event.GeneratedAt != nil {
+		// 服务端若携带生成时间，则保留原始生成时间方便与 sidecar 日志对齐。
+		c.status.LastGeneratedAt = formatStatusTime(event.GeneratedAt.UTC())
+	}
+	if event.Ready != nil {
+		// 只有服务端显式给出 readiness 时才覆盖最近一次 readiness 快照。
+		c.status.ReadyKnown = true
+		c.status.Ready = *event.Ready
+	}
 	if event.Type == ConnectionEventTypeConnected || event.Connected {
 		// 对 connected 事件补记最近一次连接成功时间。
 		c.status.LastConnectedAt = formatStatusTime(observedAt)
@@ -217,6 +231,11 @@ func classifyStatusError(err error) string {
 	var replayErr *RegisterReplayError
 	if errors.As(err, &replayErr) {
 		return "register_replay"
+	}
+	// sidecar 管理接口返回稳定错误码时保留专门分类，方便排查请求模型或状态码问题。
+	var apiErr *SidecarAPIError
+	if errors.As(err, &apiErr) {
+		return "sidecar_api"
 	}
 	// 其余错误统一归到通用运行时错误类别。
 	return "runtime_error"
