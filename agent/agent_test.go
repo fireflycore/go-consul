@@ -7,6 +7,7 @@ import (
 	"time"
 
 	microapp "github.com/fireflycore/go-micro/app"
+	"github.com/fireflycore/go-micro/kernel"
 	"github.com/fireflycore/go-micro/service"
 	"google.golang.org/grpc"
 )
@@ -28,12 +29,19 @@ func TestNewBuildsServiceNodeAndNormalizesDefaults(t *testing.T) {
 			Name:       "auth",
 			Secret:     "sensitive",
 			InstanceId: "auth-1",
+			Env:        "prod",
+			Version:    "1.0.0",
+		},
+		Kernel: kernel.Config{
+			Language: "go",
+			Version:  "1.25.1",
 		},
 		Service: service.Config{
 			Name:          "auth",
 			Namespace:     "default",
 			Type:          "svc",
 			ClusterDomain: "cluster.local",
+			Weight:        100,
 		},
 		Protocol:   "grpc",
 		ServerPort: 9090,
@@ -82,6 +90,10 @@ func TestNewReturnsControllerValidationError(t *testing.T) {
 		App: microapp.Config{
 			Id:         "10001",
 			InstanceId: "broken-1",
+		},
+		Kernel: kernel.Config{
+			Language: "go",
+			Version:  "1.25.1",
 		},
 		ServerPort: 9090,
 	}, SidecarAgentConfig{})

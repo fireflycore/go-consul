@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	microapp "github.com/fireflycore/go-micro/app"
+	"github.com/fireflycore/go-micro/kernel"
 	microsvc "github.com/fireflycore/go-micro/service"
 	"google.golang.org/grpc"
 )
@@ -30,12 +31,19 @@ func benchmarkServiceOptions() *ServiceOptions {
 			Id:         "10001",
 			Name:       "auth",
 			InstanceId: "auth-1",
+			Env:        "prod",
+			Version:    "1.0.0",
+		},
+		Kernel: kernel.Config{
+			Language: "go",
+			Version:  "1.25.1",
 		},
 		Service: microsvc.Config{
 			Name:          "auth",
 			Namespace:     "default",
 			Type:          "svc",
 			ClusterDomain: "cluster.local",
+			Weight:        100,
 		},
 		Protocol:   "grpc",
 		ServerPort: 9090,

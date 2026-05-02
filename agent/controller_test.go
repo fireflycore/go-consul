@@ -5,13 +5,14 @@ import (
 	"testing"
 
 	microapp "github.com/fireflycore/go-micro/app"
+	"github.com/fireflycore/go-micro/kernel"
 	"github.com/fireflycore/go-micro/service"
 )
 
 // fakeClient 记录控制器发往本机 agent 的调用轨迹。
 type fakeClient struct {
-	registerCalls []*ServiceNode
-	drainCalls []DrainRequest
+	registerCalls   []*ServiceNode
+	drainCalls      []DrainRequest
 	deregisterCalls []DeregisterRequest
 }
 
@@ -37,12 +38,25 @@ func testServiceNode(name string, port uint) *ServiceNode {
 				Id:         "app-1",
 				InstanceId: "app-1-1",
 				Name:       name,
+				Env:        "prod",
+				Version:    "1.0.0",
+			},
+			Kernel: kernel.Config{
+				Language: "go",
+				Version:  "1.25.1",
 			},
 			Service: service.Config{
-				Name: name,
+				Name:          name,
+				Namespace:     "default",
+				Type:          "svc",
+				ClusterDomain: "cluster.local",
+				Weight:        100,
 			},
+			Protocol:   "grpc",
 			ServerPort: port,
 		},
+		DNS:     name + ".default.svc.cluster.local",
+		Methods: []string{"/acme." + name + ".v1.Service/Ping"},
 	}
 }
 
@@ -87,10 +101,10 @@ func TestControllerDrainAndDeregisterUseServiceNode(t *testing.T) {
 	if got, want := len(client.deregisterCalls), 1; got != want {
 		t.Fatalf("unexpected deregister call count: got=%d want=%d", got, want)
 	}
-	if got, want := client.drainCalls[0].ServiceName, "payment"; got != want {
-		t.Fatalf("unexpected drain service: got=%s want=%s", got, want)
+	if got, want := client.drainCalls[0].AppId, "app-1"; got != want {
+		t.Fatalf("unexpected drain app id: got=%s want=%s", got, want)
 	}
-	if got, want := client.deregisterCalls[0].ServicePort, uint(8080); got != want {
-		t.Fatalf("unexpected deregister port: got=%d want=%d", got, want)
+	if got, want := client.deregisterCalls[0].AppInstanceId, "app-1-1"; got != want {
+		t.Fatalf("unexpected deregister app instance id: got=%s want=%s", got, want)
 	}
 }
