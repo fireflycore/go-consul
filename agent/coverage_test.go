@@ -258,53 +258,25 @@ func TestHttpClientPostJSONErrorPaths(t *testing.T) {
 }
 
 func TestHttpClientDecodeAndAcceptedStatusHelpers(t *testing.T) {
-	type payload struct {
-		Service string `json:"service"`
-	}
-	var decoded payload
-	meta, err := decodeSidecarResponse([]byte(`{"success":true,"code":"runtime_snapshot","message":"ok","generated_at":"2026-05-02T00:00:00Z","data":{"service":"sidecar-agent"}}`), &decoded)
+	meta, err := decodeSidecarResponse([]byte(`{"success":true,"code":"register_ok","message":"ok"}`))
 	if err != nil {
 		t.Fatalf("decode sidecar response failed: %v", err)
 	}
-	if got, want := decoded.Service, "sidecar-agent"; got != want {
-		t.Fatalf("unexpected decoded service: got=%s want=%s", got, want)
-	}
-	if !meta.Success || meta.Code != "runtime_snapshot" {
+	if !meta.Success || meta.Code != "register_ok" {
 		t.Fatalf("unexpected response meta: %+v", meta)
 	}
-	if _, err := decodeSidecarResponse([]byte(`{"success":true,"data":{"service":1}}`), &decoded); err == nil {
-		t.Fatal("expected data decode error")
-	}
-	if _, err := decodeSidecarResponse([]byte(`not json`), &decoded); err == nil {
-		t.Fatal("expected invalid json decode error")
-	}
-	if _, err := decodeSidecarResponse([]byte(`not json`), nil); err != nil {
-		t.Fatalf("expected nil target to ignore invalid json, got: %v", err)
-	}
-	if !isAcceptedStatus(http.StatusServiceUnavailable, http.StatusOK, http.StatusServiceUnavailable) {
-		t.Fatal("expected service unavailable to be accepted")
-	}
-	if isAcceptedStatus(http.StatusBadGateway, http.StatusOK, http.StatusServiceUnavailable) {
-		t.Fatal("did not expect bad gateway to be accepted")
+	if _, err := decodeSidecarResponse([]byte(`not json`)); err != nil {
+		t.Fatalf("expected invalid json to be ignored, got: %v", err)
 	}
 }
 
-func TestHttpClientDecodeEmptyBodyAndDefaultAcceptedStatus(t *testing.T) {
-	type payload struct {
-		Service string `json:"service"`
-	}
-	meta, err := decodeSidecarResponse([]byte("   "), &payload{})
+func TestHttpClientDecodeEmptyBody(t *testing.T) {
+	meta, err := decodeSidecarResponse([]byte("   "))
 	if err != nil {
 		t.Fatalf("expected empty body decode to succeed, got: %v", err)
 	}
 	if meta != (SidecarResponseMeta{}) {
 		t.Fatalf("unexpected meta for empty body: %+v", meta)
-	}
-	if !isAcceptedStatus(http.StatusOK) {
-		t.Fatal("expected 200 to be accepted by default")
-	}
-	if isAcceptedStatus(http.StatusCreated) {
-		t.Fatal("did not expect 201 to be accepted by default")
 	}
 }
 
@@ -463,14 +435,8 @@ func TestControllerObserveEventAndRecordErrorBranches(t *testing.T) {
 	if got, want := status.LastEventId, "evt-7"; got != want {
 		t.Fatalf("unexpected event id: got=%s want=%s", got, want)
 	}
-	if !status.ReadyKnown || !status.Ready {
-		t.Fatalf("unexpected readiness status: %+v", status)
-	}
-	if got, want := status.LastSidecarStatus, "degraded"; got != want {
-		t.Fatalf("unexpected sidecar status: got=%s want=%s", got, want)
-	}
-	if got, want := status.LastGeneratedAt, generatedAt.Format(time.RFC3339Nano); got != want {
-		t.Fatalf("unexpected generated time: got=%s want=%s", got, want)
+	if got, want := status.LastEventType, ConnectionEventTypeDisconnected; got != want {
+		t.Fatalf("unexpected event type: got=%s want=%s", got, want)
 	}
 	if got := status.LastDisconnectedAt; got == "" {
 		t.Fatal("expected disconnected time to be recorded")
@@ -490,18 +456,6 @@ func TestServiceNodeValidateAndBuildDNS(t *testing.T) {
 	}
 	if err := node.Validate(); err != nil {
 		t.Fatalf("expected valid node, got: %v", err)
-	}
-
-	invalidMode := testServiceNode("auth", 9090)
-	invalidMode.HealthCheck.Mode = "invalid"
-	if err := invalidMode.Validate(); err == nil {
-		t.Fatal("expected invalid health check mode")
-	}
-
-	invalidPath := testServiceNode("auth", 9090)
-	invalidPath.HealthCheck.Path = "healthz"
-	if err := invalidPath.Validate(); err == nil {
-		t.Fatal("expected invalid health check path")
 	}
 }
 
@@ -524,123 +478,6 @@ func TestServiceNodeValidateEdgeBranches(t *testing.T) {
 	invalidMethod.Methods = []string{"Ping"}
 	if err := invalidMethod.Validate(); err == nil {
 		t.Fatal("expected invalid method path")
-	}
-
-	invalidAddress := testServiceNode("auth", 9090)
-	invalidAddress.HealthCheck.Address = "127.0.0.1"
-	if err := invalidAddress.Validate(); err == nil {
-		t.Fatal("expected invalid health check address")
-	}
-}
-
-func TestApiClientReadinessRuntimeAndRecovery(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		switch request.URL.Path {
-		case "/readyz":
-			writer.WriteHeader(http.StatusServiceUnavailable)
-			_, _ = writer.Write([]byte(`{"success":false,"code":"not_ready","message":"sidecar is not ready","generated_at":"2026-05-02T00:00:00Z","data":{"service":"sidecar-agent","lifecycle_state":"starting","ready":false,"status":"starting","local_services_summary":{"total":1},"components":{"registry":{"configured":true,"started":true,"ready":false}},"discovery":{},"xds_summary":{},"envoy_summary":{},"health_checker_summary":{}}}`))
-		case "/debug/runtime":
-			_, _ = writer.Write([]byte(`{"success":true,"code":"runtime_snapshot","message":"runtime snapshot","generated_at":"2026-05-02T00:00:01Z","data":{"service":"sidecar-agent","lifecycle_state":"running","ready":true,"status":"ready","local_services_summary":{"total":2,"serving":2},"components":{"registry":{"configured":true,"started":true,"ready":true}},"discovery":{"status":"ok"},"xds_summary":{"version":"v1"},"envoy_summary":{"running":true},"health_checker_summary":{"enabled":true}}}`))
-		case "/debug/recovery":
-			_, _ = writer.Write([]byte(`{"success":true,"code":"recovery_snapshot","message":"recovery snapshot","generated_at":"2026-05-02T00:00:02Z","data":{"service":"sidecar-agent","lifecycle_state":"running","ready":true,"status":"ready","shutdown_requested":false,"run_context_active":true,"local_services_summary":{"total":2},"components":{"registry":{"configured":true,"started":true,"ready":true}},"discovery":{"status":"ok"},"xds_summary":{"version":"v1"},"envoy_summary":{"running":true},"health_checker_summary":{"enabled":true},"generated_at":"2026-05-02T00:00:02Z"}}`))
-		default:
-			t.Fatalf("unexpected path: %s", request.URL.Path)
-		}
-	}))
-	defer server.Close()
-
-	client := NewApiClient(NewHttpClient(server.URL, time.Second))
-	readiness, err := client.Readiness(context.Background())
-	if err != nil {
-		t.Fatalf("readiness failed: %v", err)
-	}
-	if readiness.StatusCode != http.StatusServiceUnavailable || readiness.Code != "not_ready" || readiness.Snapshot.Ready {
-		t.Fatalf("unexpected readiness: %+v", readiness)
-	}
-
-	runtimeSnapshot, err := client.RuntimeSnapshot(context.Background())
-	if err != nil {
-		t.Fatalf("runtime snapshot failed: %v", err)
-	}
-	if got, want := runtimeSnapshot.Status, "ready"; got != want {
-		t.Fatalf("unexpected runtime status: got=%s want=%s", got, want)
-	}
-	if runtimeSnapshot.Components["registry"].Detail != "" && !runtimeSnapshot.Components["registry"].Ready {
-		t.Fatalf("unexpected runtime components: %+v", runtimeSnapshot.Components)
-	}
-
-	recoverySnapshot, err := client.RecoverySnapshot(context.Background())
-	if err != nil {
-		t.Fatalf("recovery snapshot failed: %v", err)
-	}
-	if !recoverySnapshot.RunContextActive || recoverySnapshot.GeneratedAt.IsZero() {
-		t.Fatalf("unexpected recovery snapshot: %+v", recoverySnapshot)
-	}
-}
-
-func TestApiClientReadinessErrorPath(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != "/readyz" {
-			t.Fatalf("unexpected path: %s", request.URL.Path)
-		}
-		writer.WriteHeader(http.StatusBadGateway)
-		_, _ = writer.Write([]byte(`{"success":false,"code":"bad_gateway","message":"sidecar upstream unavailable"}`))
-	}))
-	defer server.Close()
-
-	client := NewApiClient(NewHttpClient(server.URL, time.Second))
-	if _, err := client.Readiness(context.Background()); err == nil {
-		t.Fatal("expected readiness error")
-	}
-}
-
-func TestAgentSidecarSnapshotsAndGuards(t *testing.T) {
-	var nilAgent *Agent
-	if _, err := nilAgent.Readiness(context.Background()); err == nil {
-		t.Fatal("expected nil agent readiness guard")
-	}
-	if _, err := nilAgent.RuntimeSnapshot(context.Background()); err == nil {
-		t.Fatal("expected nil agent runtime guard")
-	}
-	if _, err := nilAgent.RecoverySnapshot(context.Background()); err == nil {
-		t.Fatal("expected nil agent recovery guard")
-	}
-
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		switch request.URL.Path {
-		case "/readyz":
-			_, _ = writer.Write([]byte(`{"success":true,"code":"ready","message":"sidecar is ready","generated_at":"2026-05-02T00:00:00Z","data":{"service":"sidecar-agent","lifecycle_state":"running","ready":true,"status":"ready","local_services_summary":{"total":1},"components":{"registry":{"configured":true,"started":true,"ready":true}},"discovery":{},"xds_summary":{},"envoy_summary":{},"health_checker_summary":{}}}`))
-		case "/debug/runtime":
-			_, _ = writer.Write([]byte(`{"success":true,"code":"runtime_snapshot","message":"runtime snapshot","generated_at":"2026-05-02T00:00:01Z","data":{"service":"sidecar-agent","lifecycle_state":"running","ready":true,"status":"ready","local_services_summary":{"total":1},"components":{"registry":{"configured":true,"started":true,"ready":true}},"discovery":{},"xds_summary":{},"envoy_summary":{},"health_checker_summary":{}}}`))
-		case "/debug/recovery":
-			_, _ = writer.Write([]byte(`{"success":true,"code":"recovery_snapshot","message":"recovery snapshot","generated_at":"2026-05-02T00:00:02Z","data":{"service":"sidecar-agent","lifecycle_state":"running","ready":true,"status":"ready","shutdown_requested":false,"run_context_active":true,"local_services_summary":{"total":1},"components":{"registry":{"configured":true,"started":true,"ready":true}},"discovery":{},"xds_summary":{},"envoy_summary":{},"health_checker_summary":{},"generated_at":"2026-05-02T00:00:02Z"}}`))
-		default:
-			t.Fatalf("unexpected path: %s", request.URL.Path)
-		}
-	}))
-	defer server.Close()
-
-	agent := &Agent{Client: NewApiClient(NewHttpClient(server.URL, time.Second))}
-	readiness, err := agent.Readiness(context.Background())
-	if err != nil {
-		t.Fatalf("agent readiness failed: %v", err)
-	}
-	if !readiness.Snapshot.Ready {
-		t.Fatalf("unexpected readiness snapshot: %+v", readiness)
-	}
-	runtimeSnapshot, err := agent.RuntimeSnapshot(context.Background())
-	if err != nil {
-		t.Fatalf("agent runtime snapshot failed: %v", err)
-	}
-	if !runtimeSnapshot.Ready {
-		t.Fatalf("unexpected runtime snapshot: %+v", runtimeSnapshot)
-	}
-	recoverySnapshot, err := agent.RecoverySnapshot(context.Background())
-	if err != nil {
-		t.Fatalf("agent recovery snapshot failed: %v", err)
-	}
-	if !recoverySnapshot.Ready {
-		t.Fatalf("unexpected recovery snapshot: %+v", recoverySnapshot)
 	}
 }
 
