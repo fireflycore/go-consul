@@ -1,8 +1,6 @@
 package agent
 
-import (
-	"context"
-)
+import "context"
 
 // ApiClient 提供一个基于 JSON over HTTP 的本地 agent client 实现。
 type ApiClient struct {
