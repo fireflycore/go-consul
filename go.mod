@@ -3,7 +3,7 @@ module github.com/fireflycore/go-consul
 go 1.25.1
 
 require (
-	github.com/fireflycore/go-micro v1.4.7
+	github.com/fireflycore/go-micro v1.4.8
 	github.com/fireflycore/go-utils v0.3.6
 	github.com/hashicorp/consul/api v1.31.2
 	google.golang.org/grpc v1.79.2
@@ -13,6 +13,7 @@ require (
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/fatih/color v1.16.0 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/hashicorp/go-hclog v1.5.0 // indirect
