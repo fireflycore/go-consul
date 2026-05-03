@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	microapp "github.com/fireflycore/go-micro/app"
+	"github.com/fireflycore/go-micro/app"
 	"github.com/fireflycore/go-micro/kernel"
 	"github.com/fireflycore/go-micro/service"
 	"google.golang.org/grpc"
@@ -24,7 +24,7 @@ func TestDefaultSidecarAgentConfig(t *testing.T) {
 
 func TestNewBuildsServiceNodeAndNormalizesDefaults(t *testing.T) {
 	agent, err := New(&ServiceOptions{
-		App: microapp.Config{
+		App: app.Config{
 			Id:         "10001",
 			Name:       "auth",
 			Secret:     "sensitive",
@@ -87,7 +87,7 @@ func TestNewRejectsNilServiceOptions(t *testing.T) {
 
 func TestNewReturnsControllerValidationError(t *testing.T) {
 	agent, err := New(&ServiceOptions{
-		App: microapp.Config{
+		App: app.Config{
 			Id:         "10001",
 			InstanceId: "broken-1",
 		},

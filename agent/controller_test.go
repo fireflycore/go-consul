@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	microapp "github.com/fireflycore/go-micro/app"
+	"github.com/fireflycore/go-micro/app"
 	"github.com/fireflycore/go-micro/kernel"
 	"github.com/fireflycore/go-micro/service"
 )
@@ -34,7 +34,7 @@ func (c *fakeClient) Deregister(ctx context.Context, request DeregisterRequest) 
 func testServiceNode(name string, port uint) *ServiceNode {
 	return &ServiceNode{
 		ServiceOptions: &ServiceOptions{
-			App: microapp.Config{
+			App: app.Config{
 				Id:         "app-1",
 				InstanceId: "app-1-1",
 				Name:       name,

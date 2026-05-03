@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"testing"
 
-	microapp "github.com/fireflycore/go-micro/app"
+	"github.com/fireflycore/go-micro/app"
 	"github.com/fireflycore/go-micro/kernel"
-	microsvc "github.com/fireflycore/go-micro/service"
+	"github.com/fireflycore/go-micro/service"
 	"google.golang.org/grpc"
 )
 
@@ -27,7 +27,7 @@ func (benchmarkNoopClient) Deregister(ctx context.Context, request DeregisterReq
 
 func benchmarkServiceOptions() *ServiceOptions {
 	return &ServiceOptions{
-		App: microapp.Config{
+		App: app.Config{
 			Id:         "10001",
 			Name:       "auth",
 			InstanceId: "auth-1",
@@ -38,7 +38,7 @@ func benchmarkServiceOptions() *ServiceOptions {
 			Language: "go",
 			Version:  "1.25.1",
 		},
-		Service: microsvc.Config{
+		Service: service.Config{
 			Name:          "auth",
 			Namespace:     "default",
 			Type:          "svc",
