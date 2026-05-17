@@ -14,8 +14,7 @@ import (
 )
 
 const (
-	defaultNamespace = "/config-center"
-	defaultTenant    = "default"
+	defaultNamespace = "config-center"
 )
 
 // StoreInstance 是基于 Consul KV 的统一配置存储实现。
@@ -154,10 +153,6 @@ func (s *StoreInstance) namespace() string {
 	// 允许 options 覆盖默认命名空间。
 	if s.options != nil && s.options.Namespace != "" {
 		ns = s.options.Namespace
-	}
-	// 统一前导斜杠风格。
-	if !strings.HasPrefix(ns, "/") {
-		ns = "/" + ns
 	}
 	// 去掉尾部斜杠，避免重复分隔符。
 	return strings.TrimRight(ns, "/")
