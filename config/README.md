@@ -4,7 +4,7 @@
 
 > 当前主线口径：在配置中心主线交付中，`go-consul/config` 对应 IDC / 裸机场景。它与 `go-k8s/config` 共享统一契约，但不是要求同一个运行时产物同时引入两套实现。
 >
-> 当前版本口径：本包已对齐 `github.com/fireflycore/go-micro@v1.5.4`，`Store` 只保留 `Get / Put / Delete`，监听能力由独立 `Watcher` 接口承载。
+> 当前版本口径：本包已对齐 `github.com/fireflycore/go-micro@v1.5.5`，已补齐 `Client` 实现；`Store` 保留 `Get / Put / Delete`，`Client` 负责聚合 cache 与共享 watch。
 >
 > 后续 cache / watch / `manage/client` 重构，统一以设计库 `design/config/plan/go-micro-config-manage-client-refactor-plan.md` 为基线。
 
@@ -13,6 +13,7 @@
 - `Store`：`Get/Put/Delete`
 - `Watcher`：`Watch/Unwatch`（基于 Consul blocking query）
 - `Store` 构造：`NewStore`
+- `Client` 构造：`NewClient`
 - `Options` 透传：`Config.BuildOptions`
 
 ## 路径模型
@@ -29,10 +30,16 @@
 
 ## 接入方式
 
-调用方直接创建 `Store`，再配合 `go-micro/config` 的 `StoreParams` / `LoadStoreConfig` 读取业务配置：
+调用方可以按场景选择两种接入方式：
 
 - `NewStore`：基于 Consul 客户端创建数据面 `Store`
+- `NewClient`：在 `Store` 之上聚合本地 cache 与共享 watch
 - `Config.BuildOptions`：把 Consul 侧配置映射到统一 `microcfg.Options`
+
+推荐：
+
+- 需要统一 cache / watch 行为时，优先使用 `NewClient`
+- 只需要最小直连读写能力时，继续使用 `Store`
 
 ## 加密语义
 
@@ -82,6 +89,15 @@ func main() {
 		Content: []byte(`{"dsn":"root:root@tcp(127.0.0.1:3306)/order"}`),
 	})
 
-	_, _ = store.Get(context.Background(), key)
+	client, err := consulcfg.NewClient(
+		store,
+		microcfg.WithClientCacheEnabled(true),
+		microcfg.WithClientWatchMode(microcfg.WatchModeOn),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	_, _ = client.Get(context.Background(), key)
 }
 ```
