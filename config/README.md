@@ -41,6 +41,36 @@
 - 需要统一 cache / watch 行为时，优先使用 `NewClient`
 - 只需要最小直连读写能力时，继续使用 `Store`
 
+## Watch 与协程数量
+
+`go-consul/config` 里的后台 watch 是按 `WatchScope` 去重启动的，不是按 `Get` 次数去重，也不是固定按 key 一一对应。
+
+前提：
+
+- 只有 `EnableCache=true`
+- 且 `WatchMode=On`
+- 且对应 key 至少被 `Client.Get(...)` 成功读取过一次
+
+满足上面条件后，后台才会为该 key 所属 scope 挂 watch。
+
+当前规则：
+
+- `WatchScopeGroup`：同一个 `tenant/env/app/group` 下，不管有多少个 key，只起 `1` 个协程
+- `WatchScopeApp`：同一个 `tenant/env/app` 下，不管有多少个 group、多少个 key，只起 `1` 个协程
+- `WatchScopePerKey`：一个 key 起 `1` 个协程
+
+例子：
+
+- 10 个 key 都在同一个 `group`，默认只起 `1` 个协程
+- 10 个 key 分布在 3 个 `group`，默认起 `3` 个协程
+- 10 个 key 都在同一个 app，且显式使用 `WatchScopeApp`，只起 `1` 个协程
+- 10 个 key 显式使用 `WatchScopePerKey`，则起 `10` 个协程
+
+说明：
+
+- 当前默认 `WatchScope` 来自 `go-micro/config`，默认值是 `WatchScopeGroup`
+- 当前实现还没有额外的 `Close` 生命周期接口，因此 watch goroutine 一旦启动，会跟随进程生命周期持续存在
+
 ## 加密语义
 
 - `go-consul/config` 遵循 `go-micro/config` 的统一加密语义。
