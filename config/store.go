@@ -163,20 +163,10 @@ func (s *StoreInstance) namespace() string {
 	return strings.TrimRight(ns, "/")
 }
 
-// normalizeTenant 返回租户路径片段。
-func normalizeTenant(tenant string) string {
-	// 未设置租户时使用默认租户路径。
-	if strings.TrimSpace(tenant) == "" {
-		return defaultTenant
-	}
-	// 去除首尾空格后返回。
-	return strings.TrimSpace(tenant)
-}
-
 // currentKey 生成 current 配置路径。
 func (s *StoreInstance) currentKey(key microConfig.Key) string {
 	return fmt.Sprintf("%s/%s/%s/%s/%s/%s/current",
-		s.namespace(), normalizeTenant(key.TenantId), key.Env, key.AppId, key.Group, key.Name,
+		s.namespace(), key.TenantId, key.AppId, key.Env, key.Group, key.Name,
 	)
 }
 

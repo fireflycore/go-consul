@@ -22,7 +22,7 @@
 
 按单条配置键生成路径：
 
-- 当前配置：`/{namespace}/{tenant}/{env}/{app}/{group}/{name}/current`
+- 当前配置：`/{namespace}/{tenant}/{app}/{env}/{group}/{name}/current`
 
 当 `tenant` 为空时会回退为 `default`。
 
@@ -55,8 +55,8 @@
 
 当前规则：
 
-- `WatchScopeGroup`：同一个 `tenant/env/app/group` 下，不管有多少个 key，只起 `1` 个协程
-- `WatchScopeApp`：同一个 `tenant/env/app` 下，不管有多少个 group、多少个 key，只起 `1` 个协程
+- `WatchScopeGroup`：同一个 `tenant/app/env/group` 下，不管有多少个 key，只起 `1` 个协程
+- `WatchScopeApp`：同一个 `tenant/app/env` 下，不管有多少个 group、多少个 key，只起 `1` 个协程
 - `WatchScopePerKey`：一个 key 起 `1` 个协程
 
 例子：
