@@ -147,7 +147,10 @@ func (s *StoreInstance) withTimeout(ctx context.Context) (context.Context, conte
 }
 
 // namespace 返回最终使用的命名空间。
-func (s *StoreInstance) namespace() string {
+func (s *StoreInstance) namespace(n string) string {
+	if n != "" {
+		return n
+	}
 	// 默认命名空间用于避免空路径。
 	ns := defaultNamespace
 	// 允许 options 覆盖默认命名空间。
@@ -160,7 +163,7 @@ func (s *StoreInstance) namespace() string {
 
 // currentKey 生成 current 配置路径。
 func (s *StoreInstance) currentKey(key microConfig.Key) string {
-	return fmt.Sprintf("%s/%s/%s/%s/%s/current", s.namespace(), key.AppId, key.Env, key.Group, key.Key)
+	return fmt.Sprintf("%s/%s/%s/%s/%s/current", s.namespace(key.Namespace), key.AppId, key.Env, key.Group, key.Key)
 }
 
 // encodeRaw 对配置内容做编码。
