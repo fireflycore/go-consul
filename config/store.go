@@ -160,9 +160,7 @@ func (s *StoreInstance) namespace() string {
 
 // currentKey 生成 current 配置路径。
 func (s *StoreInstance) currentKey(key microConfig.Key) string {
-	return fmt.Sprintf("%s/%s/%s/%s/%s/%s/current",
-		s.namespace(), key.TenantId, key.AppId, key.Env, key.Group, key.Name,
-	)
+	return fmt.Sprintf("%s/%s/%s/%s/%s/current", s.namespace(), key.AppId, key.Env, key.Group, key.Key)
 }
 
 // encodeRaw 对配置内容做编码。
@@ -207,8 +205,8 @@ func validateKey(key microConfig.Key) error {
 	if strings.TrimSpace(key.Group) == "" {
 		return microConfig.ErrInvalidKey
 	}
-	// Name 为空时视为无效 key。
-	if strings.TrimSpace(key.Name) == "" {
+	// Key 为空时视为无效 key。
+	if strings.TrimSpace(key.Key) == "" {
 		return microConfig.ErrInvalidKey
 	}
 	// key 校验通过。
