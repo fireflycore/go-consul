@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -231,7 +232,7 @@ func (c *ClientInstance) ensureWatch(key microConfig.Key) {
 // buildConsulClientScope 把抽象 WatchScope 映射为 Consul 前缀监听范围。
 func buildConsulClientScope(store *StoreInstance, scope microConfig.WatchScope, key microConfig.Key) clientScope {
 	// base 是 app 级共享监听的公共前缀。
-	base := store.namespace() + "/" + key.TenantId + "/" + key.AppId + "/" + key.Env
+	base := fmt.Sprintf("%s/%s/%s", store.namespace(), key.AppId, key.Env)
 	switch scope {
 	case microConfig.WatchScopePerKey:
 		// PerKey 模式只监听当前配置的 current 路径。
