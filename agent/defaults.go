@@ -20,6 +20,8 @@ func DefaultSidecarAgentConfig(baseURL string) SidecarAgentConfig {
 		RequestTimeout: DefaultRequestTimeout,
 		// ReconnectInterval 为 watch 断开后的重连提供默认节流。
 		ReconnectInterval: DefaultReconnectInterval,
+		// GatewayManifestPath 默认读取业务服务构建产物中的 manifest。
+		GatewayManifestPath: DefaultGatewayManifestPath,
 	}
 }
 
@@ -48,6 +50,13 @@ func normalizeSidecarAgentConfig(config SidecarAgentConfig) SidecarAgentConfig {
 	// 如果重连间隔未显式配置，则回退到默认值。
 	if config.ReconnectInterval <= 0 {
 		config.ReconnectInterval = defaults.ReconnectInterval
+	}
+	// 如果没有显式传入 manifest 路径，则使用业务服务构建产物的默认位置。
+	if strings.TrimSpace(config.GatewayManifestPath) == "" {
+		config.GatewayManifestPath = defaults.GatewayManifestPath
+	} else {
+		// 显式路径只做去空白处理，不改写调用方给出的仓库公开地址或相对路径。
+		config.GatewayManifestPath = strings.TrimSpace(config.GatewayManifestPath)
 	}
 	// 返回补齐后的可运行配置。
 	return config
