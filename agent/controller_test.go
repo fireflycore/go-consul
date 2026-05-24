@@ -61,7 +61,6 @@ func testServiceNode(name string, port uint) *ServiceNode {
 		DescriptorRef: "https://minio.lhdht.cn/descriptor/" + name + "/v0.0.1.pb",
 		HTTPRoutes: []HTTPRoute{
 			{
-				ID:         "acme." + name + ".v1.Service.Ping.http0",
 				HTTPMethod: "GET",
 				Path:       "/v1/" + name + "/ping",
 				FullMethod: fullMethod,
@@ -85,7 +84,6 @@ func testGatewayManifest() *GatewayManifest {
 		},
 		Routes: []HTTPRoute{
 			{
-				ID:         "acme.auth.v1.AuthService.Login.http0",
 				HTTPMethod: "GET",
 				Path:       "/v1/auth/login",
 				FullMethod: "/acme.auth.v1.AuthService/Login",

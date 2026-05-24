@@ -67,7 +67,6 @@ func benchmarkGatewayManifest(serviceCount, methodsPerService int) *GatewayManif
 			Methods: methods,
 		})
 		manifest.Routes = append(manifest.Routes, HTTPRoute{
-			ID:         fmt.Sprintf("%s.Method0.http0", serviceName),
 			HTTPMethod: "GET",
 			Path:       fmt.Sprintf("/v1/bench/%d", serviceIndex),
 			FullMethod: fmt.Sprintf("/%s/Method0", serviceName),
