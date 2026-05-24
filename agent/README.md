@@ -8,7 +8,7 @@
 
 当前包的核心定位主要有 4 件事：
 
-- 基于 `ServiceOptions + grpc.ServiceDesc` 构造固定 `ServiceNode`
+- 基于 `ServiceOptions + gateway.manifest.json` 构造固定 `ServiceNode`
 - 在本地前置校验后，对本机 `sidecar-agent` 发起 `register / drain / deregister`
 - 订阅本机 `watch` SSE 流，并在重连后自动重放 `register`
 - 统一向业务侧暴露 `Start / Run / Shutdown / Status`
@@ -22,9 +22,11 @@
 - `ServiceOptions`
   - 业务服务启动配置输入，包含服务基础信息、协议和端口
 - `ServiceNode`
-  - 业务服务在裸机场景下的标准节点描述，也是当前包的核心模型；当前会固定输出 `dns`、`methods`、`proto_count`
+  - 业务服务在裸机场景下的标准节点描述，也是当前包的核心模型；当前会固定输出 `dns`、`methods`、`proto_count`、`descriptor_ref` 和 `http_routes`
 - `SidecarAgentConfig`
-  - 业务侧传给 `agent` 包的运行配置，包括 sidecar 地址、重连间隔、超时、托管回调等
+  - 业务侧传给 `agent` 包的运行配置，包括 sidecar 地址、manifest 路径、重连间隔、超时、托管回调等
+- `GatewayManifest`
+  - `protoc-gen-gateway-manifest` 生成的服务能力文件，默认路径为 `dep/protobuf/manifest/gateway.manifest.json`
 - `Agent`
   - 对外唯一主对象，统一收口 watch/replay、服务托管、摘流、注销和状态查询
 
@@ -33,10 +35,12 @@
 启动阶段：
 
 1. 业务服务构造 `ServiceOptions`
-2. 调用 `New(...)` 创建 `Agent`
-3. `Agent` 内部构造 `ServiceNode`
-4. `Agent` 内部组装 `ApiClient + WatchSource + Controller + Runner`
-5. 调用 `Start(ctx)` 或 `Run(ctx)` 启动 watch/replay 主链
+2. 业务服务随构建产物携带 `gateway.manifest.json`
+3. 调用 `New(...)` 创建 `Agent`
+4. `Agent` 读取并校验 manifest
+5. `Agent` 内部构造 `ServiceNode`
+6. `Agent` 内部组装 `ApiClient + WatchSource + Controller + Runner`
+7. 调用 `Start(ctx)` 或 `Run(ctx)` 启动 watch/replay 主链
 
 连接恢复阶段：
 
@@ -56,7 +60,8 @@
 ## 对业务服务提供的功能
 
 - 统一构造 `ServiceNode`
-- 自动解析 gRPC `method path`
+- 自动读取 manifest 中的 gRPC `method path`
+- 自动透传 manifest 中的 `descriptor_ref` 与 `routes[]`
 - 在本地提前校验 sidecar 注册契约，尽早暴露参数问题
 - sidecar 连接恢复后的自动重放注册
 - 业务服务退出时统一 `drain + deregister`
@@ -111,9 +116,9 @@
 
 ```go
 svcAgent, err := agent.New(serviceOptions, agent.SidecarAgentConfig{
-  BaseURL:     "http://127.0.0.1:15010",
-  GracePeriod: "20s",
-  RawServices: serviceDescs,
+  BaseURL:             "http://127.0.0.1:15010",
+  GracePeriod:         "20s",
+  GatewayManifestPath: "dep/protobuf/gen/gateway.manifest.json",
 })
 if err != nil {
   return err
@@ -131,9 +136,9 @@ go func() {
 
 ```go
 svcAgent, err := agent.New(serviceOptions, agent.SidecarAgentConfig{
-  BaseURL:     "http://127.0.0.1:15010",
-  GracePeriod: "20s",
-  RawServices: serviceDescs,
+  BaseURL:             "http://127.0.0.1:15010",
+  GracePeriod:         "20s",
+  GatewayManifestPath: "dep/protobuf/gen/gateway.manifest.json",
   Serve: func(ctx context.Context) error {
     return grpcServer.Serve(listener)
   },
@@ -148,6 +153,44 @@ if err != nil {
 
 return svcAgent.Run(ctx)
 ```
+
+## Gateway Manifest 契约
+
+`go-consul/agent` 只从 manifest 读取服务能力，不再接收业务侧手写的 gRPC 描述清单。
+
+最小结构如下：
+
+```json
+{
+  "schema": "firefly.gateway.manifest.v1",
+  "descriptor_ref": "https://minio.lhdht.cn/descriptor/auth/v0.0.1.pb",
+  "services": [
+    {
+      "name": "acme.auth.v1.AuthService",
+      "methods": [
+        "/acme.auth.v1.AuthService/Login"
+      ]
+    }
+  ],
+  "routes": [
+    {
+      "id": "acme.auth.v1.AuthService.Login.http0",
+      "http_method": "POST",
+      "path": "/v1/auth/login",
+      "full_method": "/acme.auth.v1.AuthService/Login"
+    }
+  ]
+}
+```
+
+约束：
+
+- `schema` 必须为 `firefly.gateway.manifest.v1`
+- `services[].methods[]` 是 gRPC 能力事实源，不能为空
+- `routes[]` 只表示允许 HTTP/JSON 入口访问的 method
+- `routes[].full_method` 必须存在于 `services[].methods[]`
+- 存在 `routes[]` 时，`descriptor_ref` 必须是可由 api-gateway 拉取的 `http` 或 `https` 地址
+- 未标注 HTTP 的 gRPC method 仍会进入 `methods[]`，但不会生成 HTTP route
 
 ## 可观测状态
 

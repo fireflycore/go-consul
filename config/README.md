@@ -107,11 +107,11 @@ func main() {
 	}
 
 	key := microcfg.Key{
-		TenantId: "t1",
-		Env:      "prod",
-		AppId:    "order-service",
-		Group:    "db",
-		Name:     "primary",
+		Namespace: "t1",
+		Env:       "prod",
+		AppId:     "order-service",
+		Group:     "db",
+		Key:       "primary",
 	}
 
 	_ = store.Put(context.Background(), key, &microcfg.Raw{

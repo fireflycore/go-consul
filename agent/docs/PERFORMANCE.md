@@ -65,7 +65,7 @@ BenchmarkRunnerProcessEventBurst/512_events-8       8282            140149 ns/op
 - `ControllerStatusParallel`
   - `96.27 ns/op -> 88.17 ns/op`
 
-这些收益主要来自 `ServiceNode` 构造与 gRPC method path 提取成本下降，以及结构化 watch payload 的指针池复用。
+这些收益主要来自 `ServiceNode` 构造与 manifest method path 提取成本下降，以及结构化 watch payload 的指针池复用。
 
 ## 8. 适用场景
 
