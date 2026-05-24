@@ -8,8 +8,6 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
-
-	"google.golang.org/grpc"
 )
 
 func TestApiClientRoutesAllOperations(t *testing.T) {
@@ -217,16 +215,20 @@ func TestDefaultAndNormalizeSidecarConfigBranches(t *testing.T) {
 	}
 
 	normalized := normalizeSidecarAgentConfig(SidecarAgentConfig{
-		BaseURL:           " http://127.0.0.1:18000/ ",
-		WatchURL:          " http://127.0.0.1:19000/watch ",
-		RequestTimeout:    time.Second,
-		ReconnectInterval: 2 * time.Second,
+		BaseURL:             " http://127.0.0.1:18000/ ",
+		WatchURL:            " http://127.0.0.1:19000/watch ",
+		RequestTimeout:      time.Second,
+		ReconnectInterval:   2 * time.Second,
+		GatewayManifestPath: " /tmp/custom-gateway.manifest.json ",
 	})
 	if got, want := normalized.BaseURL, "http://127.0.0.1:18000"; got != want {
 		t.Fatalf("unexpected normalized base url: got=%s want=%s", got, want)
 	}
 	if got, want := normalized.WatchURL, "http://127.0.0.1:19000/watch"; got != want {
 		t.Fatalf("unexpected normalized watch url: got=%s want=%s", got, want)
+	}
+	if got, want := normalized.GatewayManifestPath, "/tmp/custom-gateway.manifest.json"; got != want {
+		t.Fatalf("unexpected normalized manifest path: got=%s want=%s", got, want)
 	}
 }
 
@@ -382,23 +384,30 @@ func TestJoinDataLinesAndLooksLikeJSON(t *testing.T) {
 	}
 }
 
-func TestBuildGRPCMethodsSkipsNilAndSorts(t *testing.T) {
-	methods := BuildGRPCMethods([]*grpc.ServiceDesc{
-		nil,
-		{
-			ServiceName: "acme.auth.v1.Auth",
-			Methods: []grpc.MethodDesc{
-				{MethodName: "Login"},
-				{MethodName: "Logout"},
+func TestGatewayManifestMethodPathsDeduplicatesAndSorts(t *testing.T) {
+	manifest := &GatewayManifest{
+		Schema: GatewayManifestSchema,
+		Services: []GatewayManifestService{
+			{
+				Name: "acme.auth.v1.Auth",
+				Methods: []string{
+					"/acme.auth.v1.Auth/Login",
+					"/acme.auth.v1.Auth/Logout",
+					"/acme.auth.v1.Auth/Login",
+				},
+			},
+			{
+				Name: "acme.auth.v1.Admin",
+				Methods: []string{
+					"/acme.auth.v1.Admin/Ban",
+				},
 			},
 		},
-		{
-			ServiceName: "acme.auth.v1.Admin",
-			Methods: []grpc.MethodDesc{
-				{MethodName: "Ban"},
-			},
-		},
-	})
+	}
+	if err := manifest.NormalizeAndValidate(); err != nil {
+		t.Fatalf("validate manifest failed: %v", err)
+	}
+	methods := manifest.MethodPaths()
 	if got, want := len(methods), 3; got != want {
 		t.Fatalf("unexpected methods len: got=%d want=%d", got, want)
 	}
@@ -478,6 +487,18 @@ func TestServiceNodeValidateEdgeBranches(t *testing.T) {
 	invalidMethod.Methods = []string{"Ping"}
 	if err := invalidMethod.Validate(); err == nil {
 		t.Fatal("expected invalid method path")
+	}
+
+	invalidRoute := testServiceNode("auth", 9090)
+	invalidRoute.HTTPRoutes[0].FullMethod = "/acme.auth.v1.Service/Missing"
+	if err := invalidRoute.Validate(); err == nil {
+		t.Fatal("expected invalid http route full method")
+	}
+
+	missingDescriptor := testServiceNode("auth", 9090)
+	missingDescriptor.DescriptorRef = ""
+	if err := missingDescriptor.Validate(); err == nil {
+		t.Fatal("expected missing descriptor ref")
 	}
 }
 

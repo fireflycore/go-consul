@@ -8,7 +8,6 @@ import (
 	"github.com/fireflycore/go-micro/app"
 	"github.com/fireflycore/go-micro/kernel"
 	"github.com/fireflycore/go-micro/service"
-	"google.golang.org/grpc"
 )
 
 type benchmarkNoopClient struct{}
@@ -50,24 +49,37 @@ func benchmarkServiceOptions() *ServiceOptions {
 	}
 }
 
-func benchmarkServiceDescs(serviceCount, methodsPerService int) []*grpc.ServiceDesc {
-	descs := make([]*grpc.ServiceDesc, 0, serviceCount)
+func benchmarkGatewayManifest(serviceCount, methodsPerService int) *GatewayManifest {
+	manifest := &GatewayManifest{
+		Schema:        GatewayManifestSchema,
+		DescriptorRef: "https://minio.lhdht.cn/descriptor/bench/v0.0.1.pb",
+		Services:      make([]GatewayManifestService, 0, serviceCount),
+		Routes:        make([]HTTPRoute, 0, serviceCount),
+	}
 	for serviceIndex := 0; serviceIndex < serviceCount; serviceIndex++ {
-		methods := make([]grpc.MethodDesc, 0, methodsPerService)
+		serviceName := fmt.Sprintf("acme.bench.v1.Service%d", serviceIndex)
+		methods := make([]string, 0, methodsPerService)
 		for methodIndex := 0; methodIndex < methodsPerService; methodIndex++ {
-			methods = append(methods, grpc.MethodDesc{
-				MethodName: fmt.Sprintf("Method%d", methodIndex),
-			})
+			methods = append(methods, fmt.Sprintf("/%s/Method%d", serviceName, methodIndex))
 		}
-		descs = append(descs, &grpc.ServiceDesc{
-			ServiceName: fmt.Sprintf("acme.bench.v1.Service%d", serviceIndex),
-			Methods:     methods,
+		manifest.Services = append(manifest.Services, GatewayManifestService{
+			Name:    serviceName,
+			Methods: methods,
+		})
+		manifest.Routes = append(manifest.Routes, HTTPRoute{
+			ID:         fmt.Sprintf("%s.Method0.http0", serviceName),
+			HTTPMethod: "GET",
+			Path:       fmt.Sprintf("/v1/bench/%d", serviceIndex),
+			FullMethod: fmt.Sprintf("/%s/Method0", serviceName),
 		})
 	}
-	return descs
+	if err := manifest.NormalizeAndValidate(); err != nil {
+		panic(err)
+	}
+	return manifest
 }
 
-func BenchmarkBuildGRPCMethods(b *testing.B) {
+func BenchmarkGatewayManifestMethodPaths(b *testing.B) {
 	b.ReportAllocs()
 
 	cases := []struct {
@@ -81,10 +93,10 @@ func BenchmarkBuildGRPCMethods(b *testing.B) {
 	}
 
 	for _, tc := range cases {
-		descs := benchmarkServiceDescs(tc.serviceCount, tc.methodsPerServer)
+		manifest := benchmarkGatewayManifest(tc.serviceCount, tc.methodsPerServer)
 		b.Run(tc.name, func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
-				_ = BuildGRPCMethods(descs)
+				_ = manifest.MethodPaths()
 			}
 		})
 	}
@@ -93,16 +105,16 @@ func BenchmarkBuildGRPCMethods(b *testing.B) {
 func BenchmarkNewServiceNode(b *testing.B) {
 	b.ReportAllocs()
 	options := benchmarkServiceOptions()
-	descs := benchmarkServiceDescs(8, 16)
+	manifest := benchmarkGatewayManifest(8, 16)
 
 	for i := 0; i < b.N; i++ {
-		_ = NewServiceNode(options, descs)
+		_ = NewServiceNode(options, manifest)
 	}
 }
 
 func BenchmarkControllerOnConnected(b *testing.B) {
 	b.ReportAllocs()
-	controller, err := NewController(benchmarkNoopClient{}, NewServiceNode(benchmarkServiceOptions(), benchmarkServiceDescs(4, 8)))
+	controller, err := NewController(benchmarkNoopClient{}, NewServiceNode(benchmarkServiceOptions(), benchmarkGatewayManifest(4, 8)))
 	if err != nil {
 		b.Fatalf("new controller failed: %v", err)
 	}

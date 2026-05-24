@@ -32,6 +32,7 @@ func (c *fakeClient) Deregister(ctx context.Context, request DeregisterRequest) 
 }
 
 func testServiceNode(name string, port uint) *ServiceNode {
+	fullMethod := "/acme." + name + ".v1.Service/Ping"
 	return &ServiceNode{
 		ServiceOptions: &ServiceOptions{
 			App: app.Config{
@@ -55,8 +56,41 @@ func testServiceNode(name string, port uint) *ServiceNode {
 			Protocol:   "grpc",
 			ServerPort: port,
 		},
-		DNS:     name + ".default.svc.cluster.local",
-		Methods: []string{"/acme." + name + ".v1.Service/Ping"},
+		DNS:           name + ".default.svc.cluster.local",
+		Methods:       []string{fullMethod},
+		DescriptorRef: "https://minio.lhdht.cn/descriptor/" + name + "/v0.0.1.pb",
+		HTTPRoutes: []HTTPRoute{
+			{
+				ID:         "acme." + name + ".v1.Service.Ping.http0",
+				HTTPMethod: "GET",
+				Path:       "/v1/" + name + "/ping",
+				FullMethod: fullMethod,
+			},
+		},
+	}
+}
+
+func testGatewayManifest() *GatewayManifest {
+	return &GatewayManifest{
+		Schema:        GatewayManifestSchema,
+		DescriptorRef: "https://minio.lhdht.cn/descriptor/auth/v0.0.1.pb",
+		Services: []GatewayManifestService{
+			{
+				Name: "acme.auth.v1.AuthService",
+				Methods: []string{
+					"/acme.auth.v1.AuthService/Login",
+					"/acme.auth.v1.AuthService/Logout",
+				},
+			},
+		},
+		Routes: []HTTPRoute{
+			{
+				ID:         "acme.auth.v1.AuthService.Login.http0",
+				HTTPMethod: "GET",
+				Path:       "/v1/auth/login",
+				FullMethod: "/acme.auth.v1.AuthService/Login",
+			},
+		},
 	}
 }
 

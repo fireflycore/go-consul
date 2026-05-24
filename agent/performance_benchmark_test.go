@@ -15,7 +15,7 @@ func (s benchmarkEventSource) Subscribe(ctx context.Context) (<-chan ConnectionE
 
 func BenchmarkControllerStatusParallel(b *testing.B) {
 	b.ReportAllocs()
-	controller, err := NewController(benchmarkNoopClient{}, NewServiceNode(benchmarkServiceOptions(), benchmarkServiceDescs(4, 8)))
+	controller, err := NewController(benchmarkNoopClient{}, NewServiceNode(benchmarkServiceOptions(), benchmarkGatewayManifest(4, 8)))
 	if err != nil {
 		b.Fatalf("new controller failed: %v", err)
 	}
@@ -32,7 +32,7 @@ func BenchmarkControllerStatusParallel(b *testing.B) {
 
 func BenchmarkControllerObserveEventParallel(b *testing.B) {
 	b.ReportAllocs()
-	controller, err := NewController(benchmarkNoopClient{}, NewServiceNode(benchmarkServiceOptions(), benchmarkServiceDescs(4, 8)))
+	controller, err := NewController(benchmarkNoopClient{}, NewServiceNode(benchmarkServiceOptions(), benchmarkGatewayManifest(4, 8)))
 	if err != nil {
 		b.Fatalf("new controller failed: %v", err)
 	}
@@ -66,7 +66,7 @@ func BenchmarkRunnerProcessEventBurst(b *testing.B) {
 		b.Run(tc.name, func(b *testing.B) {
 			ctx := context.Background()
 			for i := 0; i < b.N; i++ {
-				controller, err := NewController(benchmarkNoopClient{}, NewServiceNode(benchmarkServiceOptions(), benchmarkServiceDescs(2, 8)))
+				controller, err := NewController(benchmarkNoopClient{}, NewServiceNode(benchmarkServiceOptions(), benchmarkGatewayManifest(2, 8)))
 				if err != nil {
 					b.Fatalf("new controller failed: %v", err)
 				}

@@ -2,14 +2,16 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/fireflycore/go-micro/app"
 	"github.com/fireflycore/go-micro/kernel"
 	"github.com/fireflycore/go-micro/service"
-	"google.golang.org/grpc"
 )
 
 func TestDefaultSidecarAgentConfig(t *testing.T) {
@@ -20,9 +22,13 @@ func TestDefaultSidecarAgentConfig(t *testing.T) {
 	if got, want := config.WatchURL, DefaultAdminBaseURL+DefaultWatchPath; got != want {
 		t.Fatalf("unexpected watch url: got=%s want=%s", got, want)
 	}
+	if got, want := config.GatewayManifestPath, DefaultGatewayManifestPath; got != want {
+		t.Fatalf("unexpected gateway manifest path: got=%s want=%s", got, want)
+	}
 }
 
 func TestNewBuildsServiceNodeAndNormalizesDefaults(t *testing.T) {
+	manifestPath := writeTestGatewayManifest(t, testGatewayManifest())
 	agent, err := New(&ServiceOptions{
 		App: app.Config{
 			Id:         "10001",
@@ -46,14 +52,7 @@ func TestNewBuildsServiceNodeAndNormalizesDefaults(t *testing.T) {
 		Protocol:   "grpc",
 		ServerPort: 9090,
 	}, SidecarAgentConfig{
-		RawServices: []*grpc.ServiceDesc{
-			{
-				ServiceName: "acme.auth.v1.AuthService",
-				Methods: []grpc.MethodDesc{
-					{MethodName: "Login"},
-				},
-			},
-		},
+		GatewayManifestPath: manifestPath,
 	})
 	if err != nil {
 		t.Fatalf("new agent failed: %v", err)
@@ -64,11 +63,20 @@ func TestNewBuildsServiceNodeAndNormalizesDefaults(t *testing.T) {
 	if got, want := agent.Source.watchURL, DefaultAdminBaseURL+DefaultWatchPath; got != want {
 		t.Fatalf("unexpected watch url: got=%s want=%s", got, want)
 	}
-	if got, want := len(agent.Node.Methods), 1; got != want {
+	if got, want := len(agent.Node.Methods), 2; got != want {
 		t.Fatalf("unexpected method count: got=%d want=%d", got, want)
 	}
 	if got, want := agent.Node.Methods[0], "/acme.auth.v1.AuthService/Login"; got != want {
 		t.Fatalf("unexpected method path: got=%s want=%s", got, want)
+	}
+	if got, want := agent.Node.DescriptorRef, "https://minio.lhdht.cn/descriptor/auth/v0.0.1.pb"; got != want {
+		t.Fatalf("unexpected descriptor ref: got=%s want=%s", got, want)
+	}
+	if got, want := len(agent.Node.HTTPRoutes), 1; got != want {
+		t.Fatalf("unexpected http route count: got=%d want=%d", got, want)
+	}
+	if got, want := agent.Node.HTTPRoutes[0].FullMethod, "/acme.auth.v1.AuthService/Login"; got != want {
+		t.Fatalf("unexpected http route full method: got=%s want=%s", got, want)
 	}
 	if agent.Node.App.Secret != "" {
 		t.Fatal("expected app secret to be scrubbed from service node")
@@ -86,6 +94,7 @@ func TestNewRejectsNilServiceOptions(t *testing.T) {
 }
 
 func TestNewReturnsControllerValidationError(t *testing.T) {
+	manifestPath := writeTestGatewayManifest(t, testGatewayManifest())
 	agent, err := New(&ServiceOptions{
 		App: app.Config{
 			Id:         "10001",
@@ -96,9 +105,40 @@ func TestNewReturnsControllerValidationError(t *testing.T) {
 			Version:  "1.25.1",
 		},
 		ServerPort: 9090,
-	}, SidecarAgentConfig{})
+	}, SidecarAgentConfig{GatewayManifestPath: manifestPath})
 	if err == nil {
 		t.Fatal("expected controller validation error")
+	}
+	if agent != nil {
+		t.Fatalf("expected nil agent, got: %+v", agent)
+	}
+}
+
+func TestNewReturnsManifestError(t *testing.T) {
+	agent, err := New(&ServiceOptions{
+		App: app.Config{
+			Id:         "10001",
+			Name:       "auth",
+			InstanceId: "auth-1",
+			Env:        "prod",
+			Version:    "1.0.0",
+		},
+		Kernel: kernel.Config{
+			Language: "go",
+			Version:  "1.25.1",
+		},
+		Service: service.Config{
+			Name:          "auth",
+			Namespace:     "default",
+			Type:          "svc",
+			ClusterDomain: "cluster.local",
+			Weight:        100,
+		},
+		Protocol:   "grpc",
+		ServerPort: 9090,
+	}, SidecarAgentConfig{GatewayManifestPath: filepath.Join(t.TempDir(), "missing.json")})
+	if err == nil {
+		t.Fatal("expected manifest loading error")
 	}
 	if agent != nil {
 		t.Fatalf("expected nil agent, got: %+v", agent)
@@ -446,4 +486,23 @@ func closedConnectionEvents() chan ConnectionEvent {
 	ch := make(chan ConnectionEvent)
 	close(ch)
 	return ch
+}
+
+func writeTestGatewayManifest(t *testing.T, manifest *GatewayManifest) string {
+	t.Helper()
+
+	// 测试辅助函数直接复用生产 JSON 结构，保证 fixture 与真实 manifest 契约一致。
+	content, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal test gateway manifest failed: %v", err)
+	}
+
+	// 每个测试使用独立临时目录，避免 manifest 内容互相污染。
+	path := filepath.Join(t.TempDir(), "gateway.manifest.json")
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatalf("write test gateway manifest failed: %v", err)
+	}
+
+	// 返回可直接传给 SidecarAgentConfig.GatewayManifestPath 的文件路径。
+	return path
 }
