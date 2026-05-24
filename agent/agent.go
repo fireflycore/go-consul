@@ -47,8 +47,13 @@ func New(serviceOptions *ServiceOptions, config SidecarAgentConfig) (*Agent, err
 
 	// 先补齐 sidecar 配置默认值，降低业务接入成本。
 	config = normalizeSidecarAgentConfig(config)
-	// 再基于业务配置和 gRPC 描述构造固定 ServiceNode。
-	node := NewServiceNode(serviceOptions, config.RawServices)
+	// 读取业务服务随构建产物携带的 gateway manifest，作为服务能力唯一输入。
+	manifest, err := LoadGatewayManifest(config.GatewayManifestPath)
+	if err != nil {
+		return nil, err
+	}
+	// 再基于业务配置和 manifest 构造固定 ServiceNode。
+	node := NewServiceNode(serviceOptions, manifest)
 	// 理论上 node 不应为空，这里保留防御性检查。
 	if node == nil {
 		return nil, errors.New("service node is required")
