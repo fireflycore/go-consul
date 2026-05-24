@@ -9,7 +9,6 @@ import (
 	"github.com/fireflycore/go-micro/app"
 	"github.com/fireflycore/go-micro/kernel"
 	"github.com/fireflycore/go-micro/service"
-	"google.golang.org/grpc"
 )
 
 // SidecarAgentConfig 描述业务服务接入本机 sidecar-agent 时需要的运行配置。
@@ -24,8 +23,8 @@ type SidecarAgentConfig struct {
 	RequestTimeout time.Duration `json:"request_timeout"`
 	// ReconnectInterval 表示 watch 断开后的重连间隔。
 	ReconnectInterval time.Duration `json:"reconnect_interval"`
-	// RawServices 表示当前进程注册的 gRPC ServiceDesc 集合，用于构造 methods。
-	RawServices []*grpc.ServiceDesc `json:"-"`
+	// GatewayManifestPath 表示业务服务随构建产物携带的 gateway manifest 路径。
+	GatewayManifestPath string `json:"gateway_manifest_path"`
 	// OnError 用于统一处理 watch 与 register 重放过程中的异步错误。
 	OnError ErrorHandler `json:"-"`
 	// Serve 表示业务服务真正的阻塞运行入口；为空时仅运行 agent watch/replay 主链。
@@ -68,10 +67,14 @@ type ServiceNode struct {
 	ProtoCount uint `json:"proto_count"`
 	// Methods 表示业务服务暴露的方法列表。
 	Methods []string `json:"methods"`
+	// DescriptorRef 表示 api-gateway 加载 protobuf descriptor set 的 HTTP/HTTPS 地址。
+	DescriptorRef string `json:"descriptor_ref,omitempty"`
+	// HTTPRoutes 表示允许 HTTP/JSON 入口访问的 route，来源只能是 gateway manifest routes[]。
+	HTTPRoutes []HTTPRoute `json:"http_routes,omitempty"`
 }
 
-// NewServiceNode 基于 ServiceOptions 和 gRPC ServiceDesc 构造固定的业务服务节点描述。
-func NewServiceNode(options *ServiceOptions, serviceRaw []*grpc.ServiceDesc) *ServiceNode {
+// NewServiceNode 基于 ServiceOptions 和 gateway manifest 构造固定的业务服务节点描述。
+func NewServiceNode(options *ServiceOptions, manifest *GatewayManifest) *ServiceNode {
 	// 没有业务服务配置时无法构造节点，直接返回 nil。
 	if options == nil {
 		return nil
@@ -82,7 +85,19 @@ func NewServiceNode(options *ServiceOptions, serviceRaw []*grpc.ServiceDesc) *Se
 	// 防止透传 app.Secret 到 sidecar-agent。
 	cloned.App.Secret = ""
 
-	// 基于复制后的配置和 gRPC 描述组装固定的 ServiceNode。
+	// manifest 为空时保留零值能力，后续 Validate 会返回明确错误。
+	var descriptorRef string
+	var protoCount uint
+	var methods []string
+	var routes []HTTPRoute
+	if manifest != nil {
+		descriptorRef = manifest.DescriptorRef
+		protoCount = manifest.ServiceCount()
+		methods = manifest.MethodPaths()
+		routes = manifest.HTTPRoutesCopy()
+	}
+
+	// 基于复制后的配置和 manifest 组装固定的 ServiceNode。
 	node := &ServiceNode{
 		// 持有一份去敏后的业务配置副本。
 		ServiceOptions: &cloned,
@@ -90,10 +105,14 @@ func NewServiceNode(options *ServiceOptions, serviceRaw []*grpc.ServiceDesc) *Se
 		DNS: cloned.BuildDNS(),
 		// 记录当前节点构造时间，便于 sidecar 侧观测。
 		RunDate: time.Now().Format(time.RFC3339),
-		// 记录当前进程暴露的 gRPC 服务数量。
-		ProtoCount: uint(len(serviceRaw)),
-		// 记录当前进程暴露的完整方法路径集合。
-		Methods: BuildGRPCMethods(serviceRaw),
+		// 记录 manifest 中声明的 gRPC service 数量。
+		ProtoCount: protoCount,
+		// 记录 manifest 中声明的完整方法路径集合。
+		Methods: methods,
+		// 透传 descriptor_ref，供 api-gateway-agent 后续拉取 descriptor set。
+		DescriptorRef: descriptorRef,
+		// 透传 HTTP route，HTTP 入口能力只能来自 manifest routes[]。
+		HTTPRoutes: routes,
 	}
 
 	// 返回构造完成的固定服务节点描述。
@@ -140,6 +159,35 @@ func (n *ServiceNode) Validate() error {
 		if !strings.HasPrefix(strings.TrimSpace(method), "/") {
 			return fmt.Errorf("method is invalid: %s", method)
 		}
+	}
+	methodSet := make(map[string]struct{}, len(n.Methods))
+	for _, method := range n.Methods {
+		methodSet[strings.TrimSpace(method)] = struct{}{}
+	}
+	n.DescriptorRef = strings.TrimSpace(n.DescriptorRef)
+	if err := validateGatewayDescriptorRef(n.DescriptorRef, len(n.HTTPRoutes) > 0); err != nil {
+		return err
+	}
+	routeIDs := make(map[string]struct{}, len(n.HTTPRoutes))
+	routeKeys := make(map[string]struct{}, len(n.HTTPRoutes))
+	for routeIndex := range n.HTTPRoutes {
+		normalized, err := normalizeHTTPRoute(n.HTTPRoutes[routeIndex], routeIndex)
+		if err != nil {
+			return err
+		}
+		if _, exists := methodSet[normalized.FullMethod]; !exists {
+			return fmt.Errorf("http_routes[%d].full_method is not declared in methods: %s", routeIndex, normalized.FullMethod)
+		}
+		if _, exists := routeIDs[normalized.ID]; exists {
+			return fmt.Errorf("duplicate http route id: %s", normalized.ID)
+		}
+		routeIDs[normalized.ID] = struct{}{}
+		routeKey := normalized.HTTPMethod + " " + normalized.Path
+		if _, exists := routeKeys[routeKey]; exists {
+			return fmt.Errorf("duplicate http route: %s", routeKey)
+		}
+		routeKeys[routeKey] = struct{}{}
+		n.HTTPRoutes[routeIndex] = normalized
 	}
 	return nil
 }
