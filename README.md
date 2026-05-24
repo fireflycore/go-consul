@@ -52,3 +52,5 @@ func main() {
 - 服务发现能力不再通过 `go-consul/registry` 暴露给业务侧
 - Consul 特有能力由 `sidecar-agent` 或仓库内部基础能力承接，不再对外暴露 registry 子包
 - 新的服务调用主路径统一收口到 `go-micro/invocation` 的 DNS-only 模型
+- `agent` 子包采用 manifest-first 注册契约，业务服务必须随构建产物提供 `dep/protobuf/gen/gateway.manifest.json`
+- HTTP/JSON 入口 route 只能来自 manifest `routes[]`，不能由业务侧手写 gRPC 描述清单推导
