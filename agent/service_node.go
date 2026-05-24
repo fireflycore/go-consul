@@ -168,7 +168,6 @@ func (n *ServiceNode) Validate() error {
 	if err := validateGatewayDescriptorRef(n.DescriptorRef, len(n.HTTPRoutes) > 0); err != nil {
 		return err
 	}
-	routeIDs := make(map[string]struct{}, len(n.HTTPRoutes))
 	routeKeys := make(map[string]struct{}, len(n.HTTPRoutes))
 	for routeIndex := range n.HTTPRoutes {
 		normalized, err := normalizeHTTPRoute(n.HTTPRoutes[routeIndex], routeIndex)
@@ -178,10 +177,6 @@ func (n *ServiceNode) Validate() error {
 		if _, exists := methodSet[normalized.FullMethod]; !exists {
 			return fmt.Errorf("http_routes[%d].full_method is not declared in methods: %s", routeIndex, normalized.FullMethod)
 		}
-		if _, exists := routeIDs[normalized.ID]; exists {
-			return fmt.Errorf("duplicate http route id: %s", normalized.ID)
-		}
-		routeIDs[normalized.ID] = struct{}{}
 		routeKey := normalized.HTTPMethod + " " + normalized.Path
 		if _, exists := routeKeys[routeKey]; exists {
 			return fmt.Errorf("duplicate http route: %s", routeKey)
