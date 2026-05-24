@@ -6,7 +6,6 @@ require (
 	github.com/fireflycore/go-micro v1.5.6
 	github.com/fireflycore/go-utils v0.3.7
 	github.com/hashicorp/consul/api v1.31.2
-	google.golang.org/grpc v1.79.2
 )
 
 require (
@@ -30,9 +29,6 @@ require (
 	go.opentelemetry.io/otel v1.42.0 // indirect
 	go.opentelemetry.io/otel/trace v1.42.0 // indirect
 	golang.org/x/exp v0.0.0-20260312153236-7ab1446f8b90 // indirect
-	golang.org/x/net v0.52.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
-	golang.org/x/text v0.35.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260311181403-84a4fc48630c // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
+	google.golang.org/grpc v1.79.2 // indirect
 )
