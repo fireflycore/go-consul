@@ -26,7 +26,7 @@
 - `SidecarAgentConfig`
   - 业务侧传给 `agent` 包的运行配置，包括 sidecar 地址、manifest 路径、重连间隔、超时、托管回调等
 - `GatewayManifest`
-  - `protoc-gen-gateway-manifest` 生成的服务能力文件，默认路径为 `dep/protobuf/manifest/gateway.manifest.json`
+  - `protoc-gen-gateway-manifest` 生成的服务能力文件，默认路径为 `dep/protobuf/gen/gateway.manifest.json`
 - `Agent`
   - 对外唯一主对象，统一收口 watch/replay、服务托管、摘流、注销和状态查询
 
@@ -174,7 +174,6 @@ return svcAgent.Run(ctx)
   ],
   "routes": [
     {
-      "id": "acme.auth.v1.AuthService.Login.http0",
       "http_method": "POST",
       "path": "/v1/auth/login",
       "full_method": "/acme.auth.v1.AuthService/Login"
