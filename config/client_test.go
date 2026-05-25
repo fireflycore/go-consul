@@ -55,19 +55,19 @@ func TestBuildConsulClientScope(t *testing.T) {
 
 	// PerKey 应落到精确 current 路径。
 	perKey := buildConsulClientScope(store, microConfig.WatchScopePerKey, key)
-	if perKey.key != "key:/config-center/default/app/prod/database/redis/current" {
+	if perKey.key != "key:/config-center/app/prod/database/redis/current" {
 		t.Fatalf("perKey.key = %q", perKey.key)
 	}
 
 	// Group 应落到 group 级前缀。
 	group := buildConsulClientScope(store, microConfig.WatchScopeGroup, key)
-	if group.prefix != "/config-center/default/app/prod/database/" {
+	if group.prefix != "/config-center/app/prod/database/" {
 		t.Fatalf("group.prefix = %q", group.prefix)
 	}
 
 	// App 应落到 app 级前缀。
 	app := buildConsulClientScope(store, microConfig.WatchScopeApp, key)
-	if app.prefix != "/config-center/default/app/prod/" {
+	if app.prefix != "/config-center/app/prod/" {
 		t.Fatalf("app.prefix = %q", app.prefix)
 	}
 }

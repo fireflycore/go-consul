@@ -69,7 +69,7 @@ type ServiceNode struct {
 	Methods []string `json:"methods"`
 	// DescriptorRef 表示 api-gateway 加载 protobuf descriptor set 的 HTTP/HTTPS 地址。
 	DescriptorRef string `json:"descriptor_ref,omitempty"`
-	// HTTPRoutes 表示允许 HTTP/JSON 入口访问的 route，来源只能是 gateway manifest routes[]。
+	// HTTPRoutes 表示允许 HTTP 入口访问的 route，来源只能是 gateway manifest routes[]。
 	HTTPRoutes []HTTPRoute `json:"http_routes,omitempty"`
 }
 
@@ -165,17 +165,22 @@ func (n *ServiceNode) Validate() error {
 		methodSet[strings.TrimSpace(method)] = struct{}{}
 	}
 	n.DescriptorRef = strings.TrimSpace(n.DescriptorRef)
-	if err := validateGatewayDescriptorRef(n.DescriptorRef, len(n.HTTPRoutes) > 0); err != nil {
-		return err
-	}
 	routeKeys := make(map[string]struct{}, len(n.HTTPRoutes))
+	transcodingRouteCount := 0
+	httpProxyRouteCount := 0
 	for routeIndex := range n.HTTPRoutes {
 		normalized, err := normalizeHTTPRoute(n.HTTPRoutes[routeIndex], routeIndex)
 		if err != nil {
 			return err
 		}
-		if _, exists := methodSet[normalized.FullMethod]; !exists {
-			return fmt.Errorf("http_routes[%d].full_method is not declared in methods: %s", routeIndex, normalized.FullMethod)
+		// 原生 HTTP route 没有 full_method；只有 gRPC 转码 route 才需要和 methods[] 交叉校验。
+		if normalized.FullMethod != "" {
+			if _, exists := methodSet[normalized.FullMethod]; !exists {
+				return fmt.Errorf("http_routes[%d].full_method is not declared in methods: %s", routeIndex, normalized.FullMethod)
+			}
+			transcodingRouteCount++
+		} else {
+			httpProxyRouteCount++
 		}
 		routeKey := normalized.HTTPMethod + " " + normalized.Path
 		if _, exists := routeKeys[routeKey]; exists {
@@ -183,6 +188,16 @@ func (n *ServiceNode) Validate() error {
 		}
 		routeKeys[routeKey] = struct{}{}
 		n.HTTPRoutes[routeIndex] = normalized
+	}
+	// ServiceNode 是最终注册 payload，也要防止调用方绕过 manifest 校验后提交混合语义 route。
+	if transcodingRouteCount > 0 && httpProxyRouteCount > 0 {
+		return fmt.Errorf("http_routes must not mix grpc transcoding and http proxy routes")
+	}
+	if transcodingRouteCount == 0 && n.DescriptorRef != "" {
+		return errors.New("descriptor_ref must be empty when grpc transcoding routes are absent")
+	}
+	if err := validateGatewayDescriptorRef(n.DescriptorRef, transcodingRouteCount > 0); err != nil {
+		return err
 	}
 	return nil
 }

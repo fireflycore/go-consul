@@ -39,14 +39,18 @@ type GatewayManifestService struct {
 	Methods []string `json:"methods"`
 }
 
-// HTTPRoute 描述单条 HTTP/JSON 到 gRPC method 的入口映射。
+// HTTPRoute 描述单条 north-south HTTP 入口映射。
 type HTTPRoute struct {
-	// HTTPMethod 表示 HTTP 方法，例如 GET、POST、PUT、DELETE。
+	// HTTPMethod 表示入口 HTTP 方法，例如 GET、POST、PUT、DELETE。
 	HTTPMethod string `json:"http_method"`
 	// Path 表示 HTTP 入口路径。
 	Path string `json:"path"`
-	// FullMethod 表示该 HTTP route 对应的完整 gRPC method path。
-	FullMethod string `json:"full_method"`
+	// FullMethod 表示 gRPC 转码 route 对应的完整 gRPC method path；原生 HTTP route 必须为空。
+	FullMethod string `json:"full_method,omitempty"`
+	// UpstreamPath 表示原生 HTTP route 转发到业务服务时使用的上游路径；为空时沿用入口 Path。
+	UpstreamPath string `json:"upstream_path,omitempty"`
+	// StripPrefix 表示原生 HTTP route 是否把入口 Path 作为前缀剥离后再转发。
+	StripPrefix bool `json:"strip_prefix,omitempty"`
 }
 
 // LoadGatewayManifest 从磁盘读取、解析并校验 gateway manifest。
@@ -170,22 +174,26 @@ func (m *GatewayManifest) NormalizeAndValidate() error {
 	// descriptor_ref 去空白后写回，后续校验和注册都使用规范化值。
 	m.DescriptorRef = strings.TrimSpace(m.DescriptorRef)
 
-	// route 存在时必须有 descriptor_ref，api-gateway 才能完成 HTTP/JSON 到 gRPC 的转码。
-	if err := validateGatewayDescriptorRef(m.DescriptorRef, len(m.Routes) > 0); err != nil {
-		return err
-	}
-
 	// HTTP method + path 必须唯一，避免入口路由出现冲突。
 	routeKeys := make(map[string]struct{}, len(m.Routes))
+	// transcodingRouteCount 统计需要 descriptor 的 gRPC HTTP/JSON 转码 route 数量。
+	transcodingRouteCount := 0
+	// httpProxyRouteCount 统计原生 HTTP proxy route 数量。
+	httpProxyRouteCount := 0
 	for routeIndex := range m.Routes {
 		// 规范化单条 route 并校验必填字段。
 		route, err := normalizeHTTPRoute(m.Routes[routeIndex], routeIndex)
 		if err != nil {
 			return err
 		}
-		// route.full_method 必须来自 services[].methods[]。
-		if _, exists := methodSet[route.FullMethod]; !exists {
-			return fmt.Errorf("gateway manifest routes[%d].full_method is not declared in services: %s", routeIndex, route.FullMethod)
+		// 带 full_method 的 route 表示 HTTP/JSON 转 gRPC，必须指向 manifest 中声明的 gRPC method。
+		if route.FullMethod != "" {
+			if _, exists := methodSet[route.FullMethod]; !exists {
+				return fmt.Errorf("gateway manifest routes[%d].full_method is not declared in services: %s", routeIndex, route.FullMethod)
+			}
+			transcodingRouteCount++
+		} else {
+			httpProxyRouteCount++
 		}
 		// 同一个 HTTP method + path 只能指向一个 gRPC method。
 		routeKey := route.HTTPMethod + " " + route.Path
@@ -195,6 +203,17 @@ func (m *GatewayManifest) NormalizeAndValidate() error {
 		routeKeys[routeKey] = struct{}{}
 		// 把规范化后的 route 写回 manifest。
 		m.Routes[routeIndex] = route
+	}
+	// 同一份 manifest 里只允许一种入口 route 语义，避免 descriptor_ref 和 upstream_path 混搭。
+	if transcodingRouteCount > 0 && httpProxyRouteCount > 0 {
+		return fmt.Errorf("gateway manifest routes must not mix grpc transcoding and http proxy routes")
+	}
+	if transcodingRouteCount == 0 && m.DescriptorRef != "" {
+		return errors.New("descriptor_ref must be empty when grpc transcoding routes are absent")
+	}
+	// 只有 gRPC 转码 route 依赖 descriptor_ref，原生 HTTP proxy route 不需要 protobuf descriptor。
+	if err := validateGatewayDescriptorRef(m.DescriptorRef, transcodingRouteCount > 0); err != nil {
+		return err
 	}
 
 	// route 顺序不表达语义，排序后更利于 sidecar-agent 判断 route document 是否变化。
@@ -207,6 +226,12 @@ func (m *GatewayManifest) NormalizeAndValidate() error {
 		}
 		if m.Routes[left].FullMethod != m.Routes[right].FullMethod {
 			return m.Routes[left].FullMethod < m.Routes[right].FullMethod
+		}
+		if m.Routes[left].UpstreamPath != m.Routes[right].UpstreamPath {
+			return m.Routes[left].UpstreamPath < m.Routes[right].UpstreamPath
+		}
+		if m.Routes[left].StripPrefix != m.Routes[right].StripPrefix {
+			return !m.Routes[left].StripPrefix && m.Routes[right].StripPrefix
 		}
 		return false
 	})
@@ -293,13 +318,30 @@ func normalizeHTTPRoute(route HTTPRoute, routeIndex int) (HTTPRoute, error) {
 		return HTTPRoute{}, fmt.Errorf("gateway manifest route path must start with /: %s", route.Path)
 	}
 
-	// full_method 必须是完整 gRPC method path。
+	// full_method 为空时表示原生 HTTP proxy route；非空时才校验 gRPC method path 形态。
 	route.FullMethod = strings.TrimSpace(route.FullMethod)
-	if route.FullMethod == "" {
-		return HTTPRoute{}, fmt.Errorf("gateway manifest routes[%d].full_method is required", routeIndex)
-	}
-	if !strings.HasPrefix(route.FullMethod, "/") {
+	if route.FullMethod != "" && !strings.HasPrefix(route.FullMethod, "/") {
 		return HTTPRoute{}, fmt.Errorf("gateway manifest route full_method must start with /: %s", route.FullMethod)
+	}
+
+	// upstream_path 只服务原生 HTTP proxy route；gRPC 转码 route 的上游路径由 grpc_json_transcoder 决定。
+	route.UpstreamPath = strings.TrimSpace(route.UpstreamPath)
+	if route.FullMethod != "" && route.UpstreamPath != "" {
+		return HTTPRoute{}, fmt.Errorf("gateway manifest routes[%d].upstream_path is only allowed for http proxy routes", routeIndex)
+	}
+	if route.FullMethod != "" && route.StripPrefix {
+		return HTTPRoute{}, fmt.Errorf("gateway manifest routes[%d].strip_prefix is only allowed for http proxy routes", routeIndex)
+	}
+	if route.UpstreamPath != "" {
+		if !strings.HasPrefix(route.UpstreamPath, "/") {
+			return HTTPRoute{}, fmt.Errorf("gateway manifest route upstream_path must start with /: %s", route.UpstreamPath)
+		}
+		if strings.ContainsAny(route.UpstreamPath, " \t\r\n?#") {
+			return HTTPRoute{}, fmt.Errorf("gateway manifest route upstream_path must not contain whitespace, query or fragment: %s", route.UpstreamPath)
+		}
+	}
+	if route.FullMethod == "" && route.UpstreamPath != "" && route.StripPrefix {
+		return HTTPRoute{}, fmt.Errorf("gateway manifest routes[%d].upstream_path and strip_prefix cannot be set together", routeIndex)
 	}
 
 	// 返回规范化后的 route。
@@ -308,12 +350,15 @@ func normalizeHTTPRoute(route HTTPRoute, routeIndex int) (HTTPRoute, error) {
 
 // validateGatewayDescriptorRef 校验 descriptor_ref 是否满足当前 HTTP 拉取约束。
 func validateGatewayDescriptorRef(descriptorRef string, required bool) error {
-	// 当业务确实没有 HTTP/JSON route 时，允许 descriptor_ref 为空。
+	// 只有存在 gRPC 转码 route 时才允许 descriptor_ref。
 	if strings.TrimSpace(descriptorRef) == "" {
 		if required {
-			return errors.New("descriptor_ref is required when http routes are present")
+			return errors.New("descriptor_ref is required when grpc transcoding http routes are present")
 		}
 		return nil
+	}
+	if !required {
+		return errors.New("descriptor_ref must be empty when grpc transcoding routes are absent")
 	}
 
 	// descriptor_ref 第一阶段只允许 HTTP/HTTPS，便于 api-gateway 直接拉取。

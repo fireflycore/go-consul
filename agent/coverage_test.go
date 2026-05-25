@@ -500,6 +500,14 @@ func TestServiceNodeValidateEdgeBranches(t *testing.T) {
 	if err := missingDescriptor.Validate(); err == nil {
 		t.Fatal("expected missing descriptor ref")
 	}
+
+	httpProxy := testServiceNode("auth", 9090)
+	httpProxy.Protocol = "http"
+	httpProxy.DescriptorRef = ""
+	httpProxy.HTTPRoutes = []HTTPRoute{{HTTPMethod: "GET", Path: "/healthz", UpstreamPath: "/healthz"}}
+	if err := httpProxy.Validate(); err != nil {
+		t.Fatalf("expected http proxy route without descriptor ref to be valid, got: %v", err)
+	}
 }
 
 type deregisterErrorClient struct {

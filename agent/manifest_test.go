@@ -196,3 +196,30 @@ func TestGatewayManifestAllowsGRPCOnlyWithoutDescriptorRef(t *testing.T) {
 		t.Fatalf("unexpected method: got=%s want=%s", got, want)
 	}
 }
+
+func TestGatewayManifestAllowsHTTPProxyRouteWithoutDescriptorRef(t *testing.T) {
+	manifest := GatewayManifest{
+		Schema: GatewayManifestSchema,
+		Services: []GatewayManifestService{
+			{Name: "acme.webhook.v1.WebhookService", Methods: []string{"/acme.webhook.v1.WebhookService/Ping"}},
+		},
+		Routes: []HTTPRoute{
+			{HTTPMethod: "post", Path: " /v1/webhook/callback ", UpstreamPath: " /internal/callback ", StripPrefix: false},
+		},
+	}
+	if err := manifest.NormalizeAndValidate(); err != nil {
+		t.Fatalf("expected http proxy manifest to be valid, got: %v", err)
+	}
+	if got := manifest.DescriptorRef; got != "" {
+		t.Fatalf("unexpected descriptor ref: %s", got)
+	}
+	if got, want := manifest.Routes[0].FullMethod, ""; got != want {
+		t.Fatalf("unexpected full method: got=%s want empty", got)
+	}
+	if got, want := manifest.Routes[0].HTTPMethod, "POST"; got != want {
+		t.Fatalf("unexpected http method: got=%s want=%s", got, want)
+	}
+	if got, want := manifest.Routes[0].UpstreamPath, "/internal/callback"; got != want {
+		t.Fatalf("unexpected upstream path: got=%s want=%s", got, want)
+	}
+}
