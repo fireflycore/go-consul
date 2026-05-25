@@ -22,7 +22,7 @@
 - `ServiceOptions`
   - 业务服务启动配置输入，包含服务基础信息、协议和端口
 - `ServiceNode`
-  - 业务服务在裸机场景下的标准节点描述，也是当前包的核心模型；当前会固定输出 `dns`、`methods`、`proto_count`、`descriptor_ref` 和 `http_routes`
+  - 业务服务在裸机场景下的标准节点描述，也是当前包的核心模型；当前会固定输出 `dns`、`methods`、`proto_count` 和 `http_routes`，只有存在 gRPC 转码 route 时才输出 `descriptor_ref`
 - `SidecarAgentConfig`
   - 业务侧传给 `agent` 包的运行配置，包括 sidecar 地址、manifest 路径、重连间隔、超时、托管回调等
 - `GatewayManifest`
@@ -61,7 +61,7 @@
 
 - 统一构造 `ServiceNode`
 - 自动读取 manifest 中的 gRPC `method path`
-- 自动透传 manifest 中的 `descriptor_ref` 与 `routes[]`
+- 自动透传 manifest 中的 `routes[]`；只有存在 gRPC 转码 route 时才透传 `descriptor_ref`
 - 在本地提前校验 sidecar 注册契约，尽早暴露参数问题
 - sidecar 连接恢复后的自动重放注册
 - 业务服务退出时统一 `drain + deregister`
@@ -186,9 +186,11 @@ return svcAgent.Run(ctx)
 
 - `schema` 必须为 `firefly.gateway.manifest.v1`
 - `services[].methods[]` 是 gRPC 能力事实源，不能为空
-- `routes[]` 只表示允许 HTTP/JSON 入口访问的 method
-- `routes[].full_method` 必须存在于 `services[].methods[]`
-- 存在 `routes[]` 时，`descriptor_ref` 必须是可由 api-gateway 拉取的 `http` 或 `https` 地址
+- `routes[]` 表示允许 north-south HTTP 入口访问的 route
+- gRPC 转码 route 必须填写 `routes[].full_method`，且该值必须存在于 `services[].methods[]`
+- 原生 HTTP proxy route 不填写 `full_method`，可选填写 `upstream_path` 或 `strip_prefix`，二者不能同时配置
+- 存在 gRPC 转码 route 时，`descriptor_ref` 必须是可由 api-gateway 拉取的 `http` 或 `https` 地址
+- 没有 gRPC 转码 route 时不能携带 `descriptor_ref`
 - 未标注 HTTP 的 gRPC method 仍会进入 `methods[]`，但不会生成 HTTP route
 
 ## 可观测状态
