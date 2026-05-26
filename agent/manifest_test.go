@@ -197,6 +197,22 @@ func TestGatewayManifestAllowsGRPCOnlyWithoutDescriptorRef(t *testing.T) {
 	}
 }
 
+func TestGatewayManifestAllowsGRPCOnlyWithDescriptorRef(t *testing.T) {
+	manifest := GatewayManifest{
+		Schema:        GatewayManifestSchema,
+		DescriptorRef: " https://minio.lhdht.cn/descriptor/auth/v0.0.1.pb ",
+		Services: []GatewayManifestService{
+			{Name: "acme.auth.v1.AuthService", Methods: []string{"/acme.auth.v1.AuthService/Login"}},
+		},
+	}
+	if err := manifest.NormalizeAndValidate(); err != nil {
+		t.Fatalf("expected grpc-only manifest with descriptor_ref to be valid, got: %v", err)
+	}
+	if got, want := manifest.DescriptorRef, "https://minio.lhdht.cn/descriptor/auth/v0.0.1.pb"; got != want {
+		t.Fatalf("unexpected descriptor ref: got=%s want=%s", got, want)
+	}
+}
+
 func TestGatewayManifestAllowsHTTPProxyRouteWithoutDescriptorRef(t *testing.T) {
 	manifest := GatewayManifest{
 		Schema: GatewayManifestSchema,
@@ -221,5 +237,21 @@ func TestGatewayManifestAllowsHTTPProxyRouteWithoutDescriptorRef(t *testing.T) {
 	}
 	if got, want := manifest.Routes[0].UpstreamPath, "/internal/callback"; got != want {
 		t.Fatalf("unexpected upstream path: got=%s want=%s", got, want)
+	}
+}
+
+func TestGatewayManifestRejectsHTTPProxyRouteWithDescriptorRef(t *testing.T) {
+	manifest := GatewayManifest{
+		Schema:        GatewayManifestSchema,
+		DescriptorRef: "https://minio.lhdht.cn/descriptor/webhook/v0.0.1.pb",
+		Services: []GatewayManifestService{
+			{Name: "acme.webhook.v1.WebhookService", Methods: []string{"/acme.webhook.v1.WebhookService/Ping"}},
+		},
+		Routes: []HTTPRoute{
+			{HTTPMethod: "POST", Path: "/v1/webhook/callback", UpstreamPath: "/internal/callback"},
+		},
+	}
+	if err := manifest.NormalizeAndValidate(); err == nil {
+		t.Fatal("expected http proxy manifest with descriptor_ref to be rejected")
 	}
 }

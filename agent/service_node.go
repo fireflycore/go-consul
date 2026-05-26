@@ -193,9 +193,13 @@ func (n *ServiceNode) Validate() error {
 	if transcodingRouteCount > 0 && httpProxyRouteCount > 0 {
 		return fmt.Errorf("http_routes must not mix grpc transcoding and http proxy routes")
 	}
-	if transcodingRouteCount == 0 && n.DescriptorRef != "" {
-		return errors.New("descriptor_ref must be empty when grpc transcoding routes are absent")
+	if strings.EqualFold(strings.TrimSpace(n.Protocol), "http") && n.DescriptorRef != "" {
+		return errors.New("descriptor_ref must be empty for protocol=http")
 	}
+	if httpProxyRouteCount > 0 && transcodingRouteCount == 0 && n.DescriptorRef != "" {
+		return errors.New("descriptor_ref must be empty when only http proxy routes are present")
+	}
+	// 最终注册 payload 允许纯 gRPC 服务携带 descriptor_ref；只有转码 route 才强制要求它。
 	if err := validateGatewayDescriptorRef(n.DescriptorRef, transcodingRouteCount > 0); err != nil {
 		return err
 	}
