@@ -208,10 +208,10 @@ func (m *GatewayManifest) NormalizeAndValidate() error {
 	if transcodingRouteCount > 0 && httpProxyRouteCount > 0 {
 		return fmt.Errorf("gateway manifest routes must not mix grpc transcoding and http proxy routes")
 	}
-	if transcodingRouteCount == 0 && m.DescriptorRef != "" {
-		return errors.New("descriptor_ref must be empty when grpc transcoding routes are absent")
+	if httpProxyRouteCount > 0 && transcodingRouteCount == 0 && m.DescriptorRef != "" {
+		return errors.New("descriptor_ref must be empty when only http proxy routes are present")
 	}
-	// 只有 gRPC 转码 route 依赖 descriptor_ref，原生 HTTP proxy route 不需要 protobuf descriptor。
+	// gRPC 转码 route 必须有 descriptor_ref；纯 gRPC manifest 可以携带服务级 descriptor_ref 但不会强制要求。
 	if err := validateGatewayDescriptorRef(m.DescriptorRef, transcodingRouteCount > 0); err != nil {
 		return err
 	}
@@ -350,18 +350,15 @@ func normalizeHTTPRoute(route HTTPRoute, routeIndex int) (HTTPRoute, error) {
 
 // validateGatewayDescriptorRef 校验 descriptor_ref 是否满足当前 HTTP 拉取约束。
 func validateGatewayDescriptorRef(descriptorRef string, required bool) error {
-	// 只有存在 gRPC 转码 route 时才允许 descriptor_ref。
+	// descriptor_ref 为空时只有 gRPC 转码 route 需要报错。
 	if strings.TrimSpace(descriptorRef) == "" {
 		if required {
 			return errors.New("descriptor_ref is required when grpc transcoding http routes are present")
 		}
 		return nil
 	}
-	if !required {
-		return errors.New("descriptor_ref must be empty when grpc transcoding routes are absent")
-	}
 
-	// descriptor_ref 第一阶段只允许 HTTP/HTTPS，便于 api-gateway 直接拉取。
+	// descriptor_ref 第一阶段只允许 HTTP/HTTPS，纯 gRPC 或转码场景都复用同一条 URL 形态校验。
 	parsed, err := url.Parse(descriptorRef)
 	if err != nil {
 		return fmt.Errorf("descriptor_ref is invalid: %w", err)
