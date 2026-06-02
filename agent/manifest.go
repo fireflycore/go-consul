@@ -211,7 +211,7 @@ func (m *GatewayManifest) NormalizeAndValidate() error {
 	if httpProxyRouteCount > 0 && transcodingRouteCount == 0 && m.DescriptorRef != "" {
 		return errors.New("descriptor_ref must be empty when only http proxy routes are present")
 	}
-	// gRPC 转码 route 必须有 descriptor_ref；纯 gRPC manifest 可以携带服务级 descriptor_ref 但不会强制要求。
+	// gRPC 转码 route 必须有 descriptor_ref；纯 gRPC manifest 可以携带服务级 descriptor_ref，但 go-consul 不强制要求。
 	if err := validateGatewayDescriptorRef(m.DescriptorRef, transcodingRouteCount > 0); err != nil {
 		return err
 	}
@@ -358,7 +358,7 @@ func validateGatewayDescriptorRef(descriptorRef string, required bool) error {
 		return nil
 	}
 
-	// descriptor_ref 第一阶段只允许 HTTP/HTTPS，纯 gRPC 或转码场景都复用同一条 URL 形态校验。
+	// descriptor_ref 当前只允许 HTTP/HTTPS，go-consul 只校验地址形态并随注册 payload 透传。
 	parsed, err := url.Parse(descriptorRef)
 	if err != nil {
 		return fmt.Errorf("descriptor_ref is invalid: %w", err)

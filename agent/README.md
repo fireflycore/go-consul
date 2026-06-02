@@ -22,7 +22,7 @@
 - `ServiceOptions`
   - 业务服务启动配置输入，包含服务基础信息、协议和端口
 - `ServiceNode`
-  - 业务服务在裸机场景下的标准节点描述，也是当前包的核心模型；当前会固定输出 `dns`、`methods`、`proto_count` 和 `http_routes`，并在 manifest 携带服务级 `descriptor_ref` 时透传给 sidecar-agent
+  - 业务服务在裸机场景下的标准节点描述，也是当前包的核心模型；当前会固定输出 `dns`、`methods`、`proto_count`、`descriptor_ref` 和 `http_routes`
 - `SidecarAgentConfig`
   - 业务侧传给 `agent` 包的运行配置，包括 sidecar 地址、manifest 路径、重连间隔、超时、托管回调等
 - `GatewayManifest`
@@ -190,7 +190,8 @@ return svcAgent.Run(ctx)
 - gRPC 转码 route 必须填写 `routes[].full_method`，且该值必须存在于 `services[].methods[]`
 - 原生 HTTP proxy route 不填写 `full_method`，可选填写 `upstream_path` 或 `strip_prefix`，二者不能同时配置
 - 存在 gRPC 转码 route 时，`descriptor_ref` 必须是可由 api-gateway 拉取的 `http` 或 `https` 地址
-- 纯 gRPC 服务没有 `routes[]` 时可以携带服务级 `descriptor_ref`，api-gateway 只会在后续出现转码 route 时拉取使用
+- 纯 gRPC 服务没有 `routes[]` 时可以携带服务级 `descriptor_ref`，但 go-consul 不强制要求；gRPC 直连能力由 `methods[]` 表达，不依赖 descriptor 拉取
+- go-consul 只校验和透传 `descriptor_ref`，是否拉取 descriptor set 由 api-gateway 按当前 route 需求决定
 - 原生 HTTP proxy route 不能携带 `descriptor_ref`
 - 未标注 HTTP 的 gRPC method 仍会进入 `methods[]`，但不会生成 HTTP route
 

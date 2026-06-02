@@ -109,7 +109,7 @@ func NewServiceNode(options *ServiceOptions, manifest *GatewayManifest) *Service
 		ProtoCount: protoCount,
 		// 记录 manifest 中声明的完整方法路径集合。
 		Methods: methods,
-		// 透传 descriptor_ref，供 api-gateway-agent 后续拉取 descriptor set。
+		// 透传 descriptor_ref；go-consul 只校验和上报，是否拉取 descriptor set 由 api-gateway 按 route 需求决定。
 		DescriptorRef: descriptorRef,
 		// 透传 HTTP route，HTTP 入口能力只能来自 manifest routes[]。
 		HTTPRoutes: routes,
@@ -199,7 +199,7 @@ func (n *ServiceNode) Validate() error {
 	if httpProxyRouteCount > 0 && transcodingRouteCount == 0 && n.DescriptorRef != "" {
 		return errors.New("descriptor_ref must be empty when only http proxy routes are present")
 	}
-	// 最终注册 payload 允许纯 gRPC 服务携带 descriptor_ref；只有转码 route 才强制要求它。
+	// 最终注册 payload 允许纯 gRPC 服务携带 descriptor_ref；go-consul 只在转码 route 存在时强制要求它。
 	if err := validateGatewayDescriptorRef(n.DescriptorRef, transcodingRouteCount > 0); err != nil {
 		return err
 	}
