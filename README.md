@@ -54,5 +54,5 @@ func main() {
 - 新的服务调用主路径统一收口到 `go-micro/invocation` 的 DNS-only 模型
 - `agent` 子包采用 manifest-first 注册契约，业务服务必须随构建产物提供 `dep/protobuf/gen/gateway.manifest.json`
 - HTTP/JSON 入口 route 只能来自 manifest `routes[]`，不能由业务侧手写 gRPC 描述清单推导
-- 纯 gRPC manifest 可以携带服务级 `descriptor_ref`；存在 HTTP/JSON -> gRPC 转码 route 时必须携带 `descriptor_ref`
+- 纯 gRPC manifest 可以携带服务级 `descriptor_ref`，但 gRPC 直连能力由 `methods[]` 表达；存在 HTTP/JSON -> gRPC 转码 route 时必须携带 `descriptor_ref`
 - 原生 HTTP proxy route 不能携带 `descriptor_ref`，也不能和 gRPC 转码 route 混写
