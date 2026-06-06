@@ -72,7 +72,7 @@ func testServiceNode(name string, port uint) *ServiceNode {
 func testGatewayManifest() *GatewayManifest {
 	return &GatewayManifest{
 		Schema:        GatewayManifestSchema,
-		DescriptorRef: "https://minio.exmple.comom/descriptor/auth/v0.0.1.pb",
+		DescriptorRef: "https://minio.exmple.com/descriptor/auth/v0.0.1.pb",
 		Services: []GatewayManifestService{
 			{
 				Name: "acme.auth.v1.AuthService",
