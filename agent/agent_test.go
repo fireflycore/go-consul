@@ -69,7 +69,7 @@ func TestNewBuildsServiceNodeAndNormalizesDefaults(t *testing.T) {
 	if got, want := agent.Node.Methods[0], "/acme.auth.v1.AuthService/Login"; got != want {
 		t.Fatalf("unexpected method path: got=%s want=%s", got, want)
 	}
-	if got, want := agent.Node.DescriptorRef, "https://minio.lhdht.cn/descriptor/auth/v0.0.1.pb"; got != want {
+	if got, want := agent.Node.DescriptorRef, "https://minio.exmple.com/descriptor/auth/v0.0.1.pb"; got != want {
 		t.Fatalf("unexpected descriptor ref: got=%s want=%s", got, want)
 	}
 	if got, want := len(agent.Node.HTTPRoutes), 1; got != want {

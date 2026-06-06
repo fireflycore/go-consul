@@ -52,7 +52,7 @@ func benchmarkServiceOptions() *ServiceOptions {
 func benchmarkGatewayManifest(serviceCount, methodsPerService int) *GatewayManifest {
 	manifest := &GatewayManifest{
 		Schema:        GatewayManifestSchema,
-		DescriptorRef: "https://minio.lhdht.cn/descriptor/bench/v0.0.1.pb",
+		DescriptorRef: "https://minio.exmple.com/descriptor/bench/v0.0.1.pb",
 		Services:      make([]GatewayManifestService, 0, serviceCount),
 		Routes:        make([]HTTPRoute, 0, serviceCount),
 	}
