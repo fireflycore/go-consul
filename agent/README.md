@@ -163,7 +163,7 @@ return svcAgent.Run(ctx)
 ```json
 {
   "schema": "firefly.gateway.manifest.v1",
-  "descriptor_ref": "https://minio.lhdht.cn/descriptor/auth/v0.0.1.pb",
+  "descriptor_ref": "https://minio.exmple.com/descriptor/auth/v0.0.1.pb",
   "services": [
     {
       "name": "acme.auth.v1.AuthService",

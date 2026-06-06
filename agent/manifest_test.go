@@ -9,7 +9,7 @@ import (
 func TestLoadGatewayManifestNormalizesAndValidates(t *testing.T) {
 	manifest := &GatewayManifest{
 		Schema:        GatewayManifestSchema,
-		DescriptorRef: " https://minio.lhdht.cn/descriptor/auth/v0.0.1.pb ",
+		DescriptorRef: " https://minio.exmple.com/descriptor/auth/v0.0.1.pb ",
 		Services: []GatewayManifestService{
 			{
 				Name: " acme.auth.v1.AuthService ",
@@ -34,7 +34,7 @@ func TestLoadGatewayManifestNormalizesAndValidates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load gateway manifest failed: %v", err)
 	}
-	if got, want := loaded.DescriptorRef, "https://minio.lhdht.cn/descriptor/auth/v0.0.1.pb"; got != want {
+	if got, want := loaded.DescriptorRef, "https://minio.exmple.com/descriptor/auth/v0.0.1.pb"; got != want {
 		t.Fatalf("unexpected descriptor ref: got=%s want=%s", got, want)
 	}
 	if got, want := len(loaded.MethodPaths()), 2; got != want {
@@ -144,7 +144,7 @@ func TestGatewayManifestValidationRejectsContractViolations(t *testing.T) {
 			name: "route_full_method_missing",
 			manifest: GatewayManifest{
 				Schema:        GatewayManifestSchema,
-				DescriptorRef: "https://minio.lhdht.cn/descriptor/auth/v0.0.1.pb",
+				DescriptorRef: "https://minio.exmple.com/descriptor/auth/v0.0.1.pb",
 				Services: []GatewayManifestService{
 					{Name: "acme.auth.v1.AuthService", Methods: []string{"/acme.auth.v1.AuthService/Login"}},
 				},
@@ -157,7 +157,7 @@ func TestGatewayManifestValidationRejectsContractViolations(t *testing.T) {
 			name: "duplicate_route",
 			manifest: GatewayManifest{
 				Schema:        GatewayManifestSchema,
-				DescriptorRef: "https://minio.lhdht.cn/descriptor/auth/v0.0.1.pb",
+				DescriptorRef: "https://minio.exmple.com/descriptor/auth/v0.0.1.pb",
 				Services: []GatewayManifestService{
 					{Name: "acme.auth.v1.AuthService", Methods: []string{"/acme.auth.v1.AuthService/Login"}},
 				},
@@ -200,7 +200,7 @@ func TestGatewayManifestAllowsGRPCOnlyWithoutDescriptorRef(t *testing.T) {
 func TestGatewayManifestAllowsGRPCOnlyWithDescriptorRef(t *testing.T) {
 	manifest := GatewayManifest{
 		Schema:        GatewayManifestSchema,
-		DescriptorRef: " https://minio.lhdht.cn/descriptor/auth/v0.0.1.pb ",
+		DescriptorRef: " https://minio.exmple.com/descriptor/auth/v0.0.1.pb ",
 		Services: []GatewayManifestService{
 			{Name: "acme.auth.v1.AuthService", Methods: []string{"/acme.auth.v1.AuthService/Login"}},
 		},
@@ -208,7 +208,7 @@ func TestGatewayManifestAllowsGRPCOnlyWithDescriptorRef(t *testing.T) {
 	if err := manifest.NormalizeAndValidate(); err != nil {
 		t.Fatalf("expected grpc-only manifest with descriptor_ref to be valid, got: %v", err)
 	}
-	if got, want := manifest.DescriptorRef, "https://minio.lhdht.cn/descriptor/auth/v0.0.1.pb"; got != want {
+	if got, want := manifest.DescriptorRef, "https://minio.exmple.com/descriptor/auth/v0.0.1.pb"; got != want {
 		t.Fatalf("unexpected descriptor ref: got=%s want=%s", got, want)
 	}
 }
@@ -243,7 +243,7 @@ func TestGatewayManifestAllowsHTTPProxyRouteWithoutDescriptorRef(t *testing.T) {
 func TestGatewayManifestRejectsHTTPProxyRouteWithDescriptorRef(t *testing.T) {
 	manifest := GatewayManifest{
 		Schema:        GatewayManifestSchema,
-		DescriptorRef: "https://minio.lhdht.cn/descriptor/webhook/v0.0.1.pb",
+		DescriptorRef: "https://minio.exmple.com/descriptor/webhook/v0.0.1.pb",
 		Services: []GatewayManifestService{
 			{Name: "acme.webhook.v1.WebhookService", Methods: []string{"/acme.webhook.v1.WebhookService/Ping"}},
 		},
