@@ -19,7 +19,7 @@ go tool cover -func=agent.cover.out
   - schema 校验
   - `services[].methods[]` 校验
   - `routes[].full_method` 与 `methods[]` 交叉校验
-  - `descriptor_ref` HTTP/HTTPS 约束
+  - `descriptor_ref` HTTP/HTTPS/S3 约束
 - `New`
   - 默认 sidecar 配置补齐
   - 默认 manifest 路径补齐

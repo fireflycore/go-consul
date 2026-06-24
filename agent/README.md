@@ -163,7 +163,7 @@ return svcAgent.Run(ctx)
 ```json
 {
   "schema": "firefly.gateway.manifest.v1",
-  "descriptor_ref": "https://minio.exmple.com/descriptor/auth/v0.0.1.pb",
+  "descriptor_ref": "s3://descriptor/auth/v0.1.0.pb",
   "services": [
     {
       "name": "acme.auth.v1.AuthService",
@@ -189,7 +189,8 @@ return svcAgent.Run(ctx)
 - `routes[]` 表示允许 north-south HTTP 入口访问的 route
 - gRPC 转码 route 必须填写 `routes[].full_method`，且该值必须存在于 `services[].methods[]`
 - 原生 HTTP proxy route 不填写 `full_method`，可选填写 `upstream_path` 或 `strip_prefix`，二者不能同时配置
-- 存在 gRPC 转码 route 时，`descriptor_ref` 必须是可由 api-gateway 拉取的 `http` 或 `https` 地址
+- 存在 gRPC 转码 route 时，`descriptor_ref` 必须是可由 api-gateway 拉取的 `http`、`https` 或 `s3` 引用
+- `s3` 引用格式固定为 `s3://bucket/key`，例如 `s3://descriptor/auth/v0.1.0.pb`；endpoint、凭据、path-style 等私有 S3 配置由 api-gateway 的运行环境提供，不能写进 query 或 fragment
 - 纯 gRPC 服务没有 `routes[]` 时可以携带服务级 `descriptor_ref`，但 go-consul 不强制要求；gRPC 直连能力由 `methods[]` 表达，不依赖 descriptor 拉取
 - go-consul 只校验和透传 `descriptor_ref`，是否拉取 descriptor set 由 api-gateway 按当前 route 需求决定
 - 原生 HTTP proxy route 不能携带 `descriptor_ref`
