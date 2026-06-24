@@ -507,6 +507,12 @@ func TestServiceNodeValidateEdgeBranches(t *testing.T) {
 		t.Fatalf("expected grpc-only node with descriptor ref to be valid, got: %v", err)
 	}
 
+	s3Descriptor := testServiceNode("auth", 9090)
+	s3Descriptor.DescriptorRef = "s3://descriptor/auth/v0.1.0.pb"
+	if err := s3Descriptor.Validate(); err != nil {
+		t.Fatalf("expected node with s3 descriptor ref to be valid, got: %v", err)
+	}
+
 	httpProxy := testServiceNode("auth", 9090)
 	httpProxy.Protocol = "http"
 	httpProxy.DescriptorRef = ""

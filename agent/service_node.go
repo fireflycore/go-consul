@@ -67,7 +67,7 @@ type ServiceNode struct {
 	ProtoCount uint `json:"proto_count"`
 	// Methods 表示业务服务暴露的方法列表。
 	Methods []string `json:"methods"`
-	// DescriptorRef 表示 api-gateway 加载 protobuf descriptor set 的 HTTP/HTTPS 地址。
+	// DescriptorRef 表示 api-gateway 加载 protobuf descriptor set 的 HTTP(S) 或 S3 引用。
 	DescriptorRef string `json:"descriptor_ref,omitempty"`
 	// HTTPRoutes 表示允许 HTTP 入口访问的 route，来源只能是 gateway manifest routes[]。
 	HTTPRoutes []HTTPRoute `json:"http_routes,omitempty"`

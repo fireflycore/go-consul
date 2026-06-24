@@ -141,6 +141,45 @@ func TestGatewayManifestValidationRejectsContractViolations(t *testing.T) {
 			},
 		},
 		{
+			name: "s3_descriptor_ref_without_key",
+			manifest: GatewayManifest{
+				Schema:        GatewayManifestSchema,
+				DescriptorRef: "s3://descriptor",
+				Services: []GatewayManifestService{
+					{Name: "acme.auth.v1.AuthService", Methods: []string{"/acme.auth.v1.AuthService/Login"}},
+				},
+				Routes: []HTTPRoute{
+					{HTTPMethod: "GET", Path: "/v1/auth/login", FullMethod: "/acme.auth.v1.AuthService/Login"},
+				},
+			},
+		},
+		{
+			name: "s3_descriptor_ref_without_bucket",
+			manifest: GatewayManifest{
+				Schema:        GatewayManifestSchema,
+				DescriptorRef: "s3:///auth/v0.1.0.pb",
+				Services: []GatewayManifestService{
+					{Name: "acme.auth.v1.AuthService", Methods: []string{"/acme.auth.v1.AuthService/Login"}},
+				},
+				Routes: []HTTPRoute{
+					{HTTPMethod: "GET", Path: "/v1/auth/login", FullMethod: "/acme.auth.v1.AuthService/Login"},
+				},
+			},
+		},
+		{
+			name: "s3_descriptor_ref_with_query",
+			manifest: GatewayManifest{
+				Schema:        GatewayManifestSchema,
+				DescriptorRef: "s3://descriptor/auth/v0.1.0.pb?endpoint=https://minio.example.com",
+				Services: []GatewayManifestService{
+					{Name: "acme.auth.v1.AuthService", Methods: []string{"/acme.auth.v1.AuthService/Login"}},
+				},
+				Routes: []HTTPRoute{
+					{HTTPMethod: "GET", Path: "/v1/auth/login", FullMethod: "/acme.auth.v1.AuthService/Login"},
+				},
+			},
+		},
+		{
 			name: "route_full_method_missing",
 			manifest: GatewayManifest{
 				Schema:        GatewayManifestSchema,
@@ -209,6 +248,25 @@ func TestGatewayManifestAllowsGRPCOnlyWithDescriptorRef(t *testing.T) {
 		t.Fatalf("expected grpc-only manifest with descriptor_ref to be valid, got: %v", err)
 	}
 	if got, want := manifest.DescriptorRef, "https://minio.exmple.com/descriptor/auth/v0.0.1.pb"; got != want {
+		t.Fatalf("unexpected descriptor ref: got=%s want=%s", got, want)
+	}
+}
+
+func TestGatewayManifestAllowsS3DescriptorRef(t *testing.T) {
+	manifest := GatewayManifest{
+		Schema:        GatewayManifestSchema,
+		DescriptorRef: " s3://descriptor/auth/v0.1.0.pb ",
+		Services: []GatewayManifestService{
+			{Name: "acme.auth.v1.AuthService", Methods: []string{"/acme.auth.v1.AuthService/Login"}},
+		},
+		Routes: []HTTPRoute{
+			{HTTPMethod: "post", Path: "/v1/auth/login", FullMethod: "/acme.auth.v1.AuthService/Login"},
+		},
+	}
+	if err := manifest.NormalizeAndValidate(); err != nil {
+		t.Fatalf("expected s3 descriptor_ref to be valid, got: %v", err)
+	}
+	if got, want := manifest.DescriptorRef, "s3://descriptor/auth/v0.1.0.pb"; got != want {
 		t.Fatalf("unexpected descriptor ref: got=%s want=%s", got, want)
 	}
 }

@@ -23,7 +23,7 @@ const (
 type GatewayManifest struct {
 	// Schema 表示 manifest 的契约版本，防止不同版本结构被误读。
 	Schema string `json:"schema"`
-	// DescriptorRef 表示 api-gateway 加载 protobuf descriptor set 的 HTTP/HTTPS 地址。
+	// DescriptorRef 表示 api-gateway 加载 protobuf descriptor set 的 HTTP(S) 或 S3 引用。
 	DescriptorRef string `json:"descriptor_ref,omitempty"`
 	// Services 表示当前业务服务真正拥有的 gRPC service 与 method 集合。
 	Services []GatewayManifestService `json:"services"`
@@ -348,7 +348,7 @@ func normalizeHTTPRoute(route HTTPRoute, routeIndex int) (HTTPRoute, error) {
 	return route, nil
 }
 
-// validateGatewayDescriptorRef 校验 descriptor_ref 是否满足当前 HTTP 拉取约束。
+// validateGatewayDescriptorRef 校验 descriptor_ref 是否满足 api-gateway 可拉取引用约束。
 func validateGatewayDescriptorRef(descriptorRef string, required bool) error {
 	// descriptor_ref 为空时只有 gRPC 转码 route 需要报错。
 	if strings.TrimSpace(descriptorRef) == "" {
@@ -358,16 +358,27 @@ func validateGatewayDescriptorRef(descriptorRef string, required bool) error {
 		return nil
 	}
 
-	// descriptor_ref 当前只允许 HTTP/HTTPS，go-consul 只校验地址形态并随注册 payload 透传。
+	// go-consul 只校验引用形态并随注册 payload 透传，真正的下载行为由 api-gateway 执行。
 	parsed, err := url.Parse(descriptorRef)
 	if err != nil {
 		return fmt.Errorf("descriptor_ref is invalid: %w", err)
 	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return fmt.Errorf("descriptor_ref scheme must be http or https: %s", descriptorRef)
-	}
 	if parsed.Host == "" {
 		return fmt.Errorf("descriptor_ref host is required: %s", descriptorRef)
+	}
+	switch parsed.Scheme {
+	case "http", "https":
+		// 公网或内网 HTTP(S) descriptor 地址继续保持原有校验边界。
+	case "s3":
+		// s3://bucket/key 只表达对象位置，endpoint 和凭据必须由 api-gateway 的运行环境提供。
+		if strings.TrimPrefix(parsed.Path, "/") == "" {
+			return fmt.Errorf("descriptor_ref s3 object key is required: %s", descriptorRef)
+		}
+		if parsed.RawQuery != "" || parsed.Fragment != "" {
+			return fmt.Errorf("descriptor_ref s3 query or fragment is not allowed: %s", descriptorRef)
+		}
+	default:
+		return fmt.Errorf("descriptor_ref scheme must be http, https, or s3: %s", descriptorRef)
 	}
 
 	// descriptor_ref 合法。
