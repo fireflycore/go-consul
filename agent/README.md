@@ -22,7 +22,7 @@
 - `ServiceOptions`
   - 业务服务启动配置输入，包含服务基础信息、协议和端口
 - `ServiceNode`
-  - 业务服务在裸机场景下的标准节点描述，也是当前包的核心模型；当前会固定输出 `dns`、`methods`、`proto_count`、`descriptor_ref` 和 `http_routes`
+  - 业务服务在裸机场景下的标准节点描述，也是当前包的核心模型；当前会固定输出 `dns`、`methods`、`proto_count` 和 `http_routes`
 - `SidecarAgentConfig`
   - 业务侧传给 `agent` 包的运行配置，包括 sidecar 地址、manifest 路径、重连间隔、超时、托管回调等
 - `GatewayManifest`
@@ -61,7 +61,7 @@
 
 - 统一构造 `ServiceNode`
 - 自动读取 manifest 中的 gRPC `method path`
-- 自动透传 manifest 中的 `routes[]` 和服务级 `descriptor_ref`
+- 自动透传 manifest 中的 `routes[]`
 - 在本地提前校验 sidecar 注册契约，尽早暴露参数问题
 - sidecar 连接恢复后的自动重放注册
 - 业务服务退出时统一 `drain + deregister`
@@ -163,7 +163,6 @@ return svcAgent.Run(ctx)
 ```json
 {
   "schema": "firefly.gateway.manifest.v1",
-  "descriptor_ref": "s3://descriptor/auth/v0.1.0.pb",
   "services": [
     {
       "name": "acme.auth.v1.AuthService",
@@ -189,11 +188,8 @@ return svcAgent.Run(ctx)
 - `routes[]` 表示允许 north-south HTTP 入口访问的 route
 - gRPC 转码 route 必须填写 `routes[].full_method`，且该值必须存在于 `services[].methods[]`
 - 原生 HTTP proxy route 不填写 `full_method`，可选填写 `upstream_path` 或 `strip_prefix`，二者不能同时配置
-- 存在 gRPC 转码 route 时，`descriptor_ref` 必须是可由 api-gateway 拉取的 `http`、`https` 或 `s3` 引用
-- `s3` 引用格式固定为 `s3://bucket/key`，例如 `s3://descriptor/auth/v0.1.0.pb`；endpoint、凭据、path-style 等私有 S3 配置由 api-gateway 的运行环境提供，不能写进 query 或 fragment
-- 纯 gRPC 服务没有 `routes[]` 时可以携带服务级 `descriptor_ref`，但 go-consul 不强制要求；gRPC 直连能力由 `methods[]` 表达，不依赖 descriptor 拉取
-- go-consul 只校验和透传 `descriptor_ref`，是否拉取 descriptor set 由 api-gateway 按当前 route 需求决定
-- 原生 HTTP proxy route 不能携带 `descriptor_ref`
+- gRPC 转码 descriptor 由 proto 仓库发布到 `{namespace}/api-gateway/descriptor/current`，业务服务 manifest 不携带 service-level descriptor 字段
+- gRPC 直连能力由 `methods[]` 表达，不依赖 descriptor 拉取
 - 未标注 HTTP 的 gRPC method 仍会进入 `methods[]`，但不会生成 HTTP route
 
 ## 可观测状态

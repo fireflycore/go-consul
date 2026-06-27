@@ -35,8 +35,8 @@ go test ./agent -run=^$ -bench=. -benchmem
 构造期能力事实来自 `gateway.manifest.json`：
 
 - `services[].methods[]` 生成 `ServiceNode.methods`
-- `descriptor_ref` 生成 `ServiceNode.descriptor_ref`
 - `routes[]` 生成 `ServiceNode.http_routes`
+- Gateway manifest benchmark fixture 只携带 schema、services 和 routes；api-gateway descriptor 由 namespace descriptor current 提供
 
 ## 5. 当前结论
 

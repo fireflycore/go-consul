@@ -19,17 +19,16 @@ go tool cover -func=agent.cover.out
   - schema 校验
   - `services[].methods[]` 校验
   - `routes[].full_method` 与 `methods[]` 交叉校验
-  - `descriptor_ref` HTTP/HTTPS/S3 约束
 - `New`
   - 默认 sidecar 配置补齐
   - 默认 manifest 路径补齐
   - manifest 加载失败返回
   - `ServiceNode` 构造与敏感字段脱敏
+  - namespace descriptor current 主线下，默认 manifest 只携带 schema、services 和 routes
 - `ServiceNode.Validate`
   - 基础服务身份字段
   - 业务端口与权重
   - `methods[]`
-  - `descriptor_ref`
   - `http_routes[]`
 - `Controller / Runner`
   - register replay
@@ -55,4 +54,5 @@ go test -count=1 ./agent -cover
 - `RawServices` / `grpc.ServiceDesc` 相关测试已经移除。
 - manifest 缺失、解析失败或字段冲突都会阻断 `New(...)`。
 - HTTP route 只从 manifest `routes[]` 进入 `ServiceNode.http_routes`。
+- gRPC 转码 route 不要求业务服务生成或上报 api-gateway descriptor 引用。
 - 未标注 HTTP 的 gRPC method 仍进入 `ServiceNode.methods`，但不会生成 HTTP route。
