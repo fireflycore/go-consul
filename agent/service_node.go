@@ -67,8 +67,6 @@ type ServiceNode struct {
 	ProtoCount uint `json:"proto_count"`
 	// Methods 表示业务服务暴露的方法列表。
 	Methods []string `json:"methods"`
-	// DescriptorRef 表示 api-gateway 加载 protobuf descriptor set 的 HTTP(S) 或 S3 引用。
-	DescriptorRef string `json:"descriptor_ref,omitempty"`
 	// HTTPRoutes 表示允许 HTTP 入口访问的 route，来源只能是 gateway manifest routes[]。
 	HTTPRoutes []HTTPRoute `json:"http_routes,omitempty"`
 }
@@ -86,12 +84,10 @@ func NewServiceNode(options *ServiceOptions, manifest *GatewayManifest) *Service
 	cloned.App.Secret = ""
 
 	// manifest 为空时保留零值能力，后续 Validate 会返回明确错误。
-	var descriptorRef string
 	var protoCount uint
 	var methods []string
 	var routes []HTTPRoute
 	if manifest != nil {
-		descriptorRef = manifest.DescriptorRef
 		protoCount = manifest.ServiceCount()
 		methods = manifest.MethodPaths()
 		routes = manifest.HTTPRoutesCopy()
@@ -109,8 +105,6 @@ func NewServiceNode(options *ServiceOptions, manifest *GatewayManifest) *Service
 		ProtoCount: protoCount,
 		// 记录 manifest 中声明的完整方法路径集合。
 		Methods: methods,
-		// 透传 descriptor_ref；go-consul 只校验和上报，是否拉取 descriptor set 由 api-gateway 按 route 需求决定。
-		DescriptorRef: descriptorRef,
 		// 透传 HTTP route，HTTP 入口能力只能来自 manifest routes[]。
 		HTTPRoutes: routes,
 	}
@@ -164,7 +158,6 @@ func (n *ServiceNode) Validate() error {
 	for _, method := range n.Methods {
 		methodSet[strings.TrimSpace(method)] = struct{}{}
 	}
-	n.DescriptorRef = strings.TrimSpace(n.DescriptorRef)
 	routeKeys := make(map[string]struct{}, len(n.HTTPRoutes))
 	transcodingRouteCount := 0
 	httpProxyRouteCount := 0
@@ -192,16 +185,6 @@ func (n *ServiceNode) Validate() error {
 	// ServiceNode 是最终注册 payload，也要防止调用方绕过 manifest 校验后提交混合语义 route。
 	if transcodingRouteCount > 0 && httpProxyRouteCount > 0 {
 		return fmt.Errorf("http_routes must not mix grpc transcoding and http proxy routes")
-	}
-	if strings.EqualFold(strings.TrimSpace(n.Protocol), "http") && n.DescriptorRef != "" {
-		return errors.New("descriptor_ref must be empty for protocol=http")
-	}
-	if httpProxyRouteCount > 0 && transcodingRouteCount == 0 && n.DescriptorRef != "" {
-		return errors.New("descriptor_ref must be empty when only http proxy routes are present")
-	}
-	// 最终注册 payload 允许纯 gRPC 服务携带 descriptor_ref；go-consul 只在转码 route 存在时强制要求它。
-	if err := validateGatewayDescriptorRef(n.DescriptorRef, transcodingRouteCount > 0); err != nil {
-		return err
 	}
 	return nil
 }

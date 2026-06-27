@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -23,8 +22,6 @@ const (
 type GatewayManifest struct {
 	// Schema 表示 manifest 的契约版本，防止不同版本结构被误读。
 	Schema string `json:"schema"`
-	// DescriptorRef 表示 api-gateway 加载 protobuf descriptor set 的 HTTP(S) 或 S3 引用。
-	DescriptorRef string `json:"descriptor_ref,omitempty"`
 	// Services 表示当前业务服务真正拥有的 gRPC service 与 method 集合。
 	Services []GatewayManifestService `json:"services"`
 	// Routes 表示被 google.api.http 标注过、允许 HTTP/JSON 入口访问的 gRPC method。
@@ -171,9 +168,6 @@ func (m *GatewayManifest) NormalizeAndValidate() error {
 		return errors.New("gateway manifest methods must not be empty")
 	}
 
-	// descriptor_ref 去空白后写回，后续校验和注册都使用规范化值。
-	m.DescriptorRef = strings.TrimSpace(m.DescriptorRef)
-
 	// HTTP method + path 必须唯一，避免入口路由出现冲突。
 	routeKeys := make(map[string]struct{}, len(m.Routes))
 	// transcodingRouteCount 统计需要 descriptor 的 gRPC HTTP/JSON 转码 route 数量。
@@ -204,16 +198,9 @@ func (m *GatewayManifest) NormalizeAndValidate() error {
 		// 把规范化后的 route 写回 manifest。
 		m.Routes[routeIndex] = route
 	}
-	// 同一份 manifest 里只允许一种入口 route 语义，避免 descriptor_ref 和 upstream_path 混搭。
+	// 同一份 manifest 里只允许一种入口 route 语义，避免转码 route 和原生 HTTP route 混搭。
 	if transcodingRouteCount > 0 && httpProxyRouteCount > 0 {
 		return fmt.Errorf("gateway manifest routes must not mix grpc transcoding and http proxy routes")
-	}
-	if httpProxyRouteCount > 0 && transcodingRouteCount == 0 && m.DescriptorRef != "" {
-		return errors.New("descriptor_ref must be empty when only http proxy routes are present")
-	}
-	// gRPC 转码 route 必须有 descriptor_ref；纯 gRPC manifest 可以携带服务级 descriptor_ref，但 go-consul 不强制要求。
-	if err := validateGatewayDescriptorRef(m.DescriptorRef, transcodingRouteCount > 0); err != nil {
-		return err
 	}
 
 	// route 顺序不表达语义，排序后更利于 sidecar-agent 判断 route document 是否变化。
@@ -346,41 +333,4 @@ func normalizeHTTPRoute(route HTTPRoute, routeIndex int) (HTTPRoute, error) {
 
 	// 返回规范化后的 route。
 	return route, nil
-}
-
-// validateGatewayDescriptorRef 校验 descriptor_ref 是否满足 api-gateway 可拉取引用约束。
-func validateGatewayDescriptorRef(descriptorRef string, required bool) error {
-	// descriptor_ref 为空时只有 gRPC 转码 route 需要报错。
-	if strings.TrimSpace(descriptorRef) == "" {
-		if required {
-			return errors.New("descriptor_ref is required when grpc transcoding http routes are present")
-		}
-		return nil
-	}
-
-	// go-consul 只校验引用形态并随注册 payload 透传，真正的下载行为由 api-gateway 执行。
-	parsed, err := url.Parse(descriptorRef)
-	if err != nil {
-		return fmt.Errorf("descriptor_ref is invalid: %w", err)
-	}
-	if parsed.Host == "" {
-		return fmt.Errorf("descriptor_ref host is required: %s", descriptorRef)
-	}
-	switch parsed.Scheme {
-	case "http", "https":
-		// 公网或内网 HTTP(S) descriptor 地址继续保持原有校验边界。
-	case "s3":
-		// s3://bucket/key 只表达对象位置，endpoint 和凭据必须由 api-gateway 的运行环境提供。
-		if strings.TrimPrefix(parsed.Path, "/") == "" {
-			return fmt.Errorf("descriptor_ref s3 object key is required: %s", descriptorRef)
-		}
-		if parsed.RawQuery != "" || parsed.Fragment != "" {
-			return fmt.Errorf("descriptor_ref s3 query or fragment is not allowed: %s", descriptorRef)
-		}
-	default:
-		return fmt.Errorf("descriptor_ref scheme must be http, https, or s3: %s", descriptorRef)
-	}
-
-	// descriptor_ref 合法。
-	return nil
 }
