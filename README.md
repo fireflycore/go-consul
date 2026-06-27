@@ -44,7 +44,7 @@ func main() {
 
 当前推荐只使用：
 
-- [agent/README.md](file:///Users/lhdht/product/firefly/go-consul/agent/README.md)
+- [agent/README.md](/Users/lhdht/product/synergy/firefly/golang/go-consul/agent/README.md)
 
 ## 设计约束
 
@@ -54,5 +54,5 @@ func main() {
 - 新的服务调用主路径统一收口到 `go-micro/invocation` 的 DNS-only 模型
 - `agent` 子包采用 manifest-first 注册契约，业务服务必须随构建产物提供 `dep/protobuf/gen/gateway.manifest.json`
 - HTTP/JSON 入口 route 只能来自 manifest `routes[]`，不能由业务侧手写 gRPC 描述清单推导
-- 纯 gRPC manifest 可以携带服务级 `descriptor_ref`，但 gRPC 直连能力由 `methods[]` 表达；存在 HTTP/JSON -> gRPC 转码 route 时必须携带可由 api-gateway 拉取的 `http`、`https` 或 `s3://bucket/key` descriptor 引用
-- 原生 HTTP proxy route 不能携带 `descriptor_ref`，也不能和 gRPC 转码 route 混写
+- HTTP/JSON -> gRPC 转码 descriptor 由 proto 仓库发布到 `{namespace}/api-gateway/descriptor/current`，业务服务 manifest 和 route document 不携带 service-level descriptor 字段
+- 原生 HTTP proxy route 不写 `full_method`，也不能和 gRPC 转码 route 混写
