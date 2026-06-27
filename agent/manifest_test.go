@@ -8,8 +8,7 @@ import (
 
 func TestLoadGatewayManifestNormalizesAndValidates(t *testing.T) {
 	manifest := &GatewayManifest{
-		Schema:        GatewayManifestSchema,
-		DescriptorRef: " https://minio.exmple.com/descriptor/auth/v0.0.1.pb ",
+		Schema: GatewayManifestSchema,
 		Services: []GatewayManifestService{
 			{
 				Name: " acme.auth.v1.AuthService ",
@@ -33,9 +32,6 @@ func TestLoadGatewayManifestNormalizesAndValidates(t *testing.T) {
 	loaded, err := LoadGatewayManifest(path)
 	if err != nil {
 		t.Fatalf("load gateway manifest failed: %v", err)
-	}
-	if got, want := loaded.DescriptorRef, "https://minio.exmple.com/descriptor/auth/v0.0.1.pb"; got != want {
-		t.Fatalf("unexpected descriptor ref: got=%s want=%s", got, want)
 	}
 	if got, want := len(loaded.MethodPaths()), 2; got != want {
 		t.Fatalf("unexpected method count: got=%d want=%d", got, want)
@@ -64,6 +60,16 @@ func TestLoadGatewayManifestRejectsMissingAndInvalidFiles(t *testing.T) {
 	}
 	if _, err := LoadGatewayManifest(unknownFieldPath); err == nil {
 		t.Fatal("expected unknown field error")
+	}
+
+	forbiddenFieldPath := filepath.Join(t.TempDir(), "gateway.manifest.json")
+	forbiddenField := "descriptor" + "_ref"
+	content := `{"schema":"firefly.gateway.manifest.v1","` + forbiddenField + `":"s3://descriptor/auth/v0.0.1.pb","services":[{"name":"acme.auth.v1.AuthService","methods":["/acme.auth.v1.AuthService/Login"]}]}`
+	if err := os.WriteFile(forbiddenFieldPath, []byte(content), 0o600); err != nil {
+		t.Fatalf("write forbidden field manifest failed: %v", err)
+	}
+	if _, err := LoadGatewayManifest(forbiddenFieldPath); err == nil {
+		t.Fatal("expected forbidden field error")
 	}
 }
 
@@ -116,74 +122,9 @@ func TestGatewayManifestValidationRejectsContractViolations(t *testing.T) {
 			},
 		},
 		{
-			name: "route_without_descriptor_ref",
-			manifest: GatewayManifest{
-				Schema: GatewayManifestSchema,
-				Services: []GatewayManifestService{
-					{Name: "acme.auth.v1.AuthService", Methods: []string{"/acme.auth.v1.AuthService/Login"}},
-				},
-				Routes: []HTTPRoute{
-					{HTTPMethod: "GET", Path: "/v1/auth/login", FullMethod: "/acme.auth.v1.AuthService/Login"},
-				},
-			},
-		},
-		{
-			name: "unsupported_descriptor_ref_scheme",
-			manifest: GatewayManifest{
-				Schema:        GatewayManifestSchema,
-				DescriptorRef: "oci://artifact-registry/firefly/descriptors/auth:v1.0.0",
-				Services: []GatewayManifestService{
-					{Name: "acme.auth.v1.AuthService", Methods: []string{"/acme.auth.v1.AuthService/Login"}},
-				},
-				Routes: []HTTPRoute{
-					{HTTPMethod: "GET", Path: "/v1/auth/login", FullMethod: "/acme.auth.v1.AuthService/Login"},
-				},
-			},
-		},
-		{
-			name: "s3_descriptor_ref_without_key",
-			manifest: GatewayManifest{
-				Schema:        GatewayManifestSchema,
-				DescriptorRef: "s3://descriptor",
-				Services: []GatewayManifestService{
-					{Name: "acme.auth.v1.AuthService", Methods: []string{"/acme.auth.v1.AuthService/Login"}},
-				},
-				Routes: []HTTPRoute{
-					{HTTPMethod: "GET", Path: "/v1/auth/login", FullMethod: "/acme.auth.v1.AuthService/Login"},
-				},
-			},
-		},
-		{
-			name: "s3_descriptor_ref_without_bucket",
-			manifest: GatewayManifest{
-				Schema:        GatewayManifestSchema,
-				DescriptorRef: "s3:///auth/v0.1.0.pb",
-				Services: []GatewayManifestService{
-					{Name: "acme.auth.v1.AuthService", Methods: []string{"/acme.auth.v1.AuthService/Login"}},
-				},
-				Routes: []HTTPRoute{
-					{HTTPMethod: "GET", Path: "/v1/auth/login", FullMethod: "/acme.auth.v1.AuthService/Login"},
-				},
-			},
-		},
-		{
-			name: "s3_descriptor_ref_with_query",
-			manifest: GatewayManifest{
-				Schema:        GatewayManifestSchema,
-				DescriptorRef: "s3://descriptor/auth/v0.1.0.pb?endpoint=https://minio.example.com",
-				Services: []GatewayManifestService{
-					{Name: "acme.auth.v1.AuthService", Methods: []string{"/acme.auth.v1.AuthService/Login"}},
-				},
-				Routes: []HTTPRoute{
-					{HTTPMethod: "GET", Path: "/v1/auth/login", FullMethod: "/acme.auth.v1.AuthService/Login"},
-				},
-			},
-		},
-		{
 			name: "route_full_method_missing",
 			manifest: GatewayManifest{
-				Schema:        GatewayManifestSchema,
-				DescriptorRef: "https://minio.exmple.com/descriptor/auth/v0.0.1.pb",
+				Schema: GatewayManifestSchema,
 				Services: []GatewayManifestService{
 					{Name: "acme.auth.v1.AuthService", Methods: []string{"/acme.auth.v1.AuthService/Login"}},
 				},
@@ -195,8 +136,7 @@ func TestGatewayManifestValidationRejectsContractViolations(t *testing.T) {
 		{
 			name: "duplicate_route",
 			manifest: GatewayManifest{
-				Schema:        GatewayManifestSchema,
-				DescriptorRef: "https://minio.exmple.com/descriptor/auth/v0.0.1.pb",
+				Schema: GatewayManifestSchema,
 				Services: []GatewayManifestService{
 					{Name: "acme.auth.v1.AuthService", Methods: []string{"/acme.auth.v1.AuthService/Login"}},
 				},
@@ -218,7 +158,7 @@ func TestGatewayManifestValidationRejectsContractViolations(t *testing.T) {
 	}
 }
 
-func TestGatewayManifestAllowsGRPCOnlyWithoutDescriptorRef(t *testing.T) {
+func TestGatewayManifestAllowsGRPCOnly(t *testing.T) {
 	manifest := GatewayManifest{
 		Schema: GatewayManifestSchema,
 		Services: []GatewayManifestService{
@@ -228,34 +168,14 @@ func TestGatewayManifestAllowsGRPCOnlyWithoutDescriptorRef(t *testing.T) {
 	if err := manifest.NormalizeAndValidate(); err != nil {
 		t.Fatalf("expected grpc-only manifest to be valid, got: %v", err)
 	}
-	if got := manifest.DescriptorRef; got != "" {
-		t.Fatalf("unexpected descriptor ref: %s", got)
-	}
 	if got, want := manifest.MethodPaths()[0], "/acme.auth.v1.AuthService/Login"; got != want {
 		t.Fatalf("unexpected method: got=%s want=%s", got, want)
 	}
 }
 
-func TestGatewayManifestAllowsGRPCOnlyWithDescriptorRef(t *testing.T) {
+func TestGatewayManifestAllowsTranscodingRoute(t *testing.T) {
 	manifest := GatewayManifest{
-		Schema:        GatewayManifestSchema,
-		DescriptorRef: " https://minio.exmple.com/descriptor/auth/v0.0.1.pb ",
-		Services: []GatewayManifestService{
-			{Name: "acme.auth.v1.AuthService", Methods: []string{"/acme.auth.v1.AuthService/Login"}},
-		},
-	}
-	if err := manifest.NormalizeAndValidate(); err != nil {
-		t.Fatalf("expected grpc-only manifest with descriptor_ref to be valid, got: %v", err)
-	}
-	if got, want := manifest.DescriptorRef, "https://minio.exmple.com/descriptor/auth/v0.0.1.pb"; got != want {
-		t.Fatalf("unexpected descriptor ref: got=%s want=%s", got, want)
-	}
-}
-
-func TestGatewayManifestAllowsS3DescriptorRef(t *testing.T) {
-	manifest := GatewayManifest{
-		Schema:        GatewayManifestSchema,
-		DescriptorRef: " s3://descriptor/auth/v0.1.0.pb ",
+		Schema: GatewayManifestSchema,
 		Services: []GatewayManifestService{
 			{Name: "acme.auth.v1.AuthService", Methods: []string{"/acme.auth.v1.AuthService/Login"}},
 		},
@@ -264,14 +184,14 @@ func TestGatewayManifestAllowsS3DescriptorRef(t *testing.T) {
 		},
 	}
 	if err := manifest.NormalizeAndValidate(); err != nil {
-		t.Fatalf("expected s3 descriptor_ref to be valid, got: %v", err)
+		t.Fatalf("expected transcoding manifest to be valid, got: %v", err)
 	}
-	if got, want := manifest.DescriptorRef, "s3://descriptor/auth/v0.1.0.pb"; got != want {
-		t.Fatalf("unexpected descriptor ref: got=%s want=%s", got, want)
+	if got, want := manifest.Routes[0].HTTPMethod, "POST"; got != want {
+		t.Fatalf("unexpected http method: got=%s want=%s", got, want)
 	}
 }
 
-func TestGatewayManifestAllowsHTTPProxyRouteWithoutDescriptorRef(t *testing.T) {
+func TestGatewayManifestAllowsHTTPProxyRoute(t *testing.T) {
 	manifest := GatewayManifest{
 		Schema: GatewayManifestSchema,
 		Services: []GatewayManifestService{
@@ -284,9 +204,6 @@ func TestGatewayManifestAllowsHTTPProxyRouteWithoutDescriptorRef(t *testing.T) {
 	if err := manifest.NormalizeAndValidate(); err != nil {
 		t.Fatalf("expected http proxy manifest to be valid, got: %v", err)
 	}
-	if got := manifest.DescriptorRef; got != "" {
-		t.Fatalf("unexpected descriptor ref: %s", got)
-	}
 	if got, want := manifest.Routes[0].FullMethod, ""; got != want {
 		t.Fatalf("unexpected full method: got=%s want empty", got)
 	}
@@ -295,21 +212,5 @@ func TestGatewayManifestAllowsHTTPProxyRouteWithoutDescriptorRef(t *testing.T) {
 	}
 	if got, want := manifest.Routes[0].UpstreamPath, "/internal/callback"; got != want {
 		t.Fatalf("unexpected upstream path: got=%s want=%s", got, want)
-	}
-}
-
-func TestGatewayManifestRejectsHTTPProxyRouteWithDescriptorRef(t *testing.T) {
-	manifest := GatewayManifest{
-		Schema:        GatewayManifestSchema,
-		DescriptorRef: "https://minio.exmple.com/descriptor/webhook/v0.0.1.pb",
-		Services: []GatewayManifestService{
-			{Name: "acme.webhook.v1.WebhookService", Methods: []string{"/acme.webhook.v1.WebhookService/Ping"}},
-		},
-		Routes: []HTTPRoute{
-			{HTTPMethod: "POST", Path: "/v1/webhook/callback", UpstreamPath: "/internal/callback"},
-		},
-	}
-	if err := manifest.NormalizeAndValidate(); err == nil {
-		t.Fatal("expected http proxy manifest with descriptor_ref to be rejected")
 	}
 }

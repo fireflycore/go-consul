@@ -495,44 +495,16 @@ func TestServiceNodeValidateEdgeBranches(t *testing.T) {
 		t.Fatal("expected invalid http route full method")
 	}
 
-	missingDescriptor := testServiceNode("auth", 9090)
-	missingDescriptor.DescriptorRef = ""
-	if err := missingDescriptor.Validate(); err == nil {
-		t.Fatal("expected missing descriptor ref")
-	}
-
-	grpcOnlyWithDescriptor := testServiceNode("auth", 9090)
-	grpcOnlyWithDescriptor.HTTPRoutes = nil
-	if err := grpcOnlyWithDescriptor.Validate(); err != nil {
-		t.Fatalf("expected grpc-only node with descriptor ref to be valid, got: %v", err)
-	}
-
-	s3Descriptor := testServiceNode("auth", 9090)
-	s3Descriptor.DescriptorRef = "s3://descriptor/auth/v0.1.0.pb"
-	if err := s3Descriptor.Validate(); err != nil {
-		t.Fatalf("expected node with s3 descriptor ref to be valid, got: %v", err)
+	transcodingWithoutDescriptor := testServiceNode("auth", 9090)
+	if err := transcodingWithoutDescriptor.Validate(); err != nil {
+		t.Fatalf("expected transcoding node without descriptor ref to be valid, got: %v", err)
 	}
 
 	httpProxy := testServiceNode("auth", 9090)
 	httpProxy.Protocol = "http"
-	httpProxy.DescriptorRef = ""
 	httpProxy.HTTPRoutes = []HTTPRoute{{HTTPMethod: "GET", Path: "/healthz", UpstreamPath: "/healthz"}}
 	if err := httpProxy.Validate(); err != nil {
 		t.Fatalf("expected http proxy route without descriptor ref to be valid, got: %v", err)
-	}
-
-	httpProxyWithDescriptor := testServiceNode("auth", 9090)
-	httpProxyWithDescriptor.Protocol = "http"
-	httpProxyWithDescriptor.HTTPRoutes = []HTTPRoute{{HTTPMethod: "GET", Path: "/healthz", UpstreamPath: "/healthz"}}
-	if err := httpProxyWithDescriptor.Validate(); err == nil {
-		t.Fatal("expected http proxy route with descriptor ref to fail")
-	}
-
-	httpProtocolWithoutRouteWithDescriptor := testServiceNode("auth", 9090)
-	httpProtocolWithoutRouteWithDescriptor.Protocol = "http"
-	httpProtocolWithoutRouteWithDescriptor.HTTPRoutes = nil
-	if err := httpProtocolWithoutRouteWithDescriptor.Validate(); err == nil {
-		t.Fatal("expected http protocol node with descriptor ref to fail")
 	}
 }
 

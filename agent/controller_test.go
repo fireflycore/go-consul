@@ -56,9 +56,8 @@ func testServiceNode(name string, port uint) *ServiceNode {
 			Protocol:   "grpc",
 			ServerPort: port,
 		},
-		DNS:           name + ".default.svc.cluster.local",
-		Methods:       []string{fullMethod},
-		DescriptorRef: "https://minio.exmple.com/descriptor/" + name + "/v0.0.1.pb",
+		DNS:     name + ".default.svc.cluster.local",
+		Methods: []string{fullMethod},
 		HTTPRoutes: []HTTPRoute{
 			{
 				HTTPMethod: "GET",
@@ -71,8 +70,7 @@ func testServiceNode(name string, port uint) *ServiceNode {
 
 func testGatewayManifest() *GatewayManifest {
 	return &GatewayManifest{
-		Schema:        GatewayManifestSchema,
-		DescriptorRef: "https://minio.exmple.com/descriptor/auth/v0.0.1.pb",
+		Schema: GatewayManifestSchema,
 		Services: []GatewayManifestService{
 			{
 				Name: "acme.auth.v1.AuthService",

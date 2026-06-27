@@ -51,10 +51,9 @@ func benchmarkServiceOptions() *ServiceOptions {
 
 func benchmarkGatewayManifest(serviceCount, methodsPerService int) *GatewayManifest {
 	manifest := &GatewayManifest{
-		Schema:        GatewayManifestSchema,
-		DescriptorRef: "https://minio.exmple.com/descriptor/bench/v0.0.1.pb",
-		Services:      make([]GatewayManifestService, 0, serviceCount),
-		Routes:        make([]HTTPRoute, 0, serviceCount),
+		Schema:   GatewayManifestSchema,
+		Services: make([]GatewayManifestService, 0, serviceCount),
+		Routes:   make([]HTTPRoute, 0, serviceCount),
 	}
 	for serviceIndex := 0; serviceIndex < serviceCount; serviceIndex++ {
 		serviceName := fmt.Sprintf("acme.bench.v1.Service%d", serviceIndex)
