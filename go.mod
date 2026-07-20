@@ -3,7 +3,7 @@ module github.com/fireflycore/go-consul
 go 1.25.12
 
 require (
-	github.com/fireflycore/go-micro v1.6.9
+	github.com/fireflycore/go-micro v1.7.1
 	github.com/fireflycore/go-utils v0.3.7
 	github.com/hashicorp/consul/api v1.31.2
 )
@@ -31,4 +31,5 @@ require (
 	golang.org/x/exp v0.0.0-20260312153236-7ab1446f8b90 // indirect
 	golang.org/x/sys v0.45.0 // indirect
 	google.golang.org/grpc v1.81.1 // indirect
+	google.golang.org/protobuf v1.36.11 // indirect
 )
