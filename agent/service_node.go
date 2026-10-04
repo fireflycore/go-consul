@@ -146,9 +146,6 @@ func (n *ServiceNode) Validate() error {
 	if n.Service.Weight == 0 {
 		return errors.New("service.weight must be greater than zero")
 	}
-	if len(n.Methods) == 0 {
-		return errors.New("methods must not be empty")
-	}
 	for _, method := range n.Methods {
 		if !strings.HasPrefix(strings.TrimSpace(method), "/") {
 			return fmt.Errorf("method is invalid: %s", method)

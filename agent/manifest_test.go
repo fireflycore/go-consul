@@ -88,12 +88,6 @@ func TestGatewayManifestValidationRejectsContractViolations(t *testing.T) {
 			},
 		},
 		{
-			name: "empty_services",
-			manifest: GatewayManifest{
-				Schema: GatewayManifestSchema,
-			},
-		},
-		{
 			name: "method_without_slash",
 			manifest: GatewayManifest{
 				Schema: GatewayManifestSchema,
@@ -170,6 +164,18 @@ func TestGatewayManifestAllowsGRPCOnly(t *testing.T) {
 	}
 	if got, want := manifest.MethodPaths()[0], "/acme.auth.v1.AuthService/Login"; got != want {
 		t.Fatalf("unexpected method: got=%s want=%s", got, want)
+	}
+}
+
+func TestGatewayManifestAllowsEmptyServicesAndMethods(t *testing.T) {
+	manifest := GatewayManifest{
+		Schema: GatewayManifestSchema,
+	}
+	if err := manifest.NormalizeAndValidate(); err != nil {
+		t.Fatalf("expected empty manifest to be valid, got: %v", err)
+	}
+	if got := len(manifest.MethodPaths()); got != 0 {
+		t.Fatalf("expected 0 methods, got %d", got)
 	}
 }
 

@@ -100,9 +100,13 @@ func (m *GatewayManifest) NormalizeAndValidate() error {
 		return fmt.Errorf("gateway manifest schema must be %q", GatewayManifestSchema)
 	}
 
-	// 至少要声明一个业务 service，否则无法形成服务能力。
+	// 允许空 services，为空时表示当前服务不向网关或服务间暴露方法能力。
 	if len(m.Services) == 0 {
-		return errors.New("gateway manifest services must not be empty")
+		m.Services = []GatewayManifestService{}
+		if m.Routes == nil {
+			m.Routes = []HTTPRoute{}
+		}
+		return nil
 	}
 
 	// 先收集全局 method 集合，供 route.full_method 交叉校验。
@@ -123,11 +127,6 @@ func (m *GatewayManifest) NormalizeAndValidate() error {
 		serviceSet[serviceName] = struct{}{}
 		// 把规范化后的名称写回，确保后续注册 payload 稳定。
 		m.Services[serviceIndex].Name = serviceName
-
-		// 每个 service 至少要声明一个 method。
-		if len(m.Services[serviceIndex].Methods) == 0 {
-			return fmt.Errorf("gateway manifest services[%d].methods must not be empty", serviceIndex)
-		}
 
 		// 对当前 service 内的方法做去重排序，避免生成物顺序影响注册 payload。
 		serviceMethods := make([]string, 0, len(m.Services[serviceIndex].Methods))
@@ -154,18 +153,9 @@ func (m *GatewayManifest) NormalizeAndValidate() error {
 			methodSet[method] = struct{}{}
 		}
 
-		// 去重后仍需至少保留一个 method。
-		if len(serviceMethods) == 0 {
-			return fmt.Errorf("gateway manifest services[%d].methods must not be empty", serviceIndex)
-		}
 		// 排序后写回，保证注册内容稳定可比对。
 		sort.Strings(serviceMethods)
 		m.Services[serviceIndex].Methods = serviceMethods
-	}
-
-	// 全局 method 集合不能为空。
-	if len(methodSet) == 0 {
-		return errors.New("gateway manifest methods must not be empty")
 	}
 
 	// HTTP method + path 必须唯一，避免入口路由出现冲突。
