@@ -48,7 +48,7 @@
 2. `Runner` 消费 `connected / heartbeat / disconnected`
 3. 收到 `connected` 后触发 `Controller.OnConnected()`
 4. `Controller` 使用固定 `ServiceNode` 调 `ApiClient.Register(...)`
-5. 成功后更新状态；失败则记录 `register_replay` 错误并等待下一轮重连
+5. 成功后更新状态并清空 `LastErrorKind / LastError / LastErrorAt`，保留累计失败次数；失败则记录 `register_replay` 错误并等待下一轮重连
 
 退出阶段：
 

@@ -100,6 +100,10 @@ func (c *Controller) OnConnected(ctx context.Context) error {
 	c.status.LastConnectedAt = formatStatusTime(now)
 	// 累加成功 register replay 次数。
 	c.status.RegisterReplayCount++
+	// 注册恢复成功后清除最近错误，累计失败次数继续保留。
+	c.status.LastErrorKind = ""
+	c.status.LastError = ""
+	c.status.LastErrorAt = ""
 	// 所有状态更新完成后返回成功。
 	return nil
 }

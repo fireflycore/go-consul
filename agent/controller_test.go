@@ -93,10 +93,14 @@ func testGatewayManifest() *GatewayManifest {
 // TestControllerOnConnectedReplaysRegister 验证控制器在连接建立时会重放注册。
 func TestControllerOnConnectedReplaysRegister(t *testing.T) {
 	client := &fakeClient{}
-	controller, err := NewController(client, testServiceNode("auth", 9090))
+	controller, err := NewController(&failingClient{}, testServiceNode("auth", 9090))
 	if err != nil {
 		t.Fatalf("new controller failed: %v", err)
 	}
+	if err := controller.OnConnected(context.Background()); err == nil {
+		t.Fatal("首次注册应失败")
+	}
+	controller.client = client
 	if err := controller.OnConnected(context.Background()); err != nil {
 		t.Fatalf("on connected failed: %v", err)
 	}
@@ -109,6 +113,9 @@ func TestControllerOnConnectedReplaysRegister(t *testing.T) {
 	status := controller.Status()
 	if !status.Connected || !status.Registered {
 		t.Fatal("expected controller to be connected and registered")
+	}
+	if status.LastErrorKind != "" || status.LastError != "" || status.LastErrorAt != "" || status.RegisterReplayFailureCount != 1 {
+		t.Fatalf("注册恢复后应清除最近错误并保留累计失败：%+v", status)
 	}
 }
 
