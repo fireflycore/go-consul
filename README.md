@@ -17,6 +17,8 @@
 - 裸机业务服务统一改走 `go-consul/agent -> sidecar-agent -> consul / envoy`
 - `go-consul` 当前承载 Consul 客户端能力与裸机 `agent` 桥接能力
 
+当前仓库使用 Go `1.26.10` 进行验证，并在 `go.mod` 声明建议工具链。业务服务升级 SDK 后也应使用 Go `1.26.10` 或更新版本重新构建，以包含标准库安全修复；依赖库的 `toolchain` 声明不会替代业务主模块的构建工具链选择。
+
 ## 客户端初始化
 
 ```go
