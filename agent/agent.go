@@ -32,8 +32,11 @@ type Agent struct {
 	// shutdown 保存业务服务自己的优雅关闭入口。
 	shutdown ShutdownFunc
 
-	// startOnce 保证后台 watch/replay 只启动一次。
-	startOnce sync.Once
+	// runMu 保护启动与停止，防止摘流后又启动注册循环。
+	runMu     sync.Mutex
+	runCancel context.CancelFunc
+	runDone   chan struct{}
+	stopping  bool
 	// errors 保存后台运行过程中产生的异步错误。
 	errors chan error
 }
@@ -127,26 +130,35 @@ func (a *Agent) ConfigureRun(config SidecarAgentConfig) {
 
 // Start 在后台启动 watch/replay 主链，并返回异步错误通道。
 func (a *Agent) Start(ctx context.Context) <-chan error {
+	a.runMu.Lock()
+	defer a.runMu.Unlock()
 	// 如果错误通道尚未初始化，则先初始化一份带缓冲通道。
 	if a.errors == nil {
 		a.errors = make(chan error, 1)
 	}
-	// 保证后台 watch/replay 协程只会启动一次。
-	a.startOnce.Do(func() {
-		go func() {
-			// 后台协程退出时关闭错误通道，通知调用方不会再有新错误。
-			defer close(a.errors)
-			// 没有 Runner 时无法启动主链，这里主动返回一个生命周期错误。
-			if a.Runner == nil {
-				a.errors <- &LifecycleRunError{Err: errors.New("runner is required")}
-				return
-			}
-			// 运行主链；上下文取消不视为异常，其余错误通过通道异步返回。
-			if err := a.Runner.Run(ctx); err != nil && err != context.Canceled {
-				a.errors <- &LifecycleRunError{Err: err}
-			}
-		}()
-	})
+	if a.runDone != nil {
+		return a.errors
+	}
+	a.runDone = make(chan struct{})
+	if a.stopping {
+		close(a.runDone)
+		close(a.errors)
+		return a.errors
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	a.runCancel = cancel
+	go func() {
+		defer close(a.runDone)
+		defer cancel()
+		defer close(a.errors)
+		if a.Runner == nil {
+			a.errors <- &LifecycleRunError{Err: errors.New("runner is required")}
+			return
+		}
+		if err := a.Runner.Run(runCtx); err != nil && !errors.Is(err, context.Canceled) {
+			a.errors <- &LifecycleRunError{Err: err}
+		}
+	}()
 	// 返回异步错误通道给业务侧消费。
 	return a.errors
 }
@@ -179,7 +191,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			if !ok {
 				// 如果没有业务服务要托管，则可以直接退出。
 				if serveErrCh == nil {
-					return nil
+					return a.finishRun(nil)
 				}
 				// 否则把生命周期通道置空，继续等待业务服务退出。
 				lifecycleErrCh = nil
@@ -187,10 +199,10 @@ func (a *Agent) Run(ctx context.Context) error {
 			}
 			// 一旦收到生命周期错误，就包装成分阶段错误返回。
 			if err != nil {
-				return &AgentRunError{
+				return errors.Join(&AgentRunError{
 					Stage: AgentRunStageLifecycle,
 					Err:   err,
-				}
+				}, a.finishRun(nil))
 			}
 		case err := <-serveErrCh:
 			// 业务服务退出后，统一走摘流、注销和关闭收尾。
@@ -205,6 +217,7 @@ func (a *Agent) Drain(ctx context.Context) error {
 	if a == nil || a.Controller == nil {
 		return errors.New("controller is required")
 	}
+	a.stopRunner()
 	// 统一委托控制器使用固定 ServiceNode 发起摘流。
 	return a.Controller.Drain(ctx, a.gracePeriod)
 }
@@ -215,6 +228,7 @@ func (a *Agent) Deregister(ctx context.Context) error {
 	if a == nil || a.Controller == nil {
 		return errors.New("controller is required")
 	}
+	a.stopRunner()
 	// 统一委托控制器使用固定 ServiceNode 发起注销。
 	return a.Controller.Deregister(ctx)
 }
@@ -225,14 +239,34 @@ func (a *Agent) Shutdown(ctx context.Context) error {
 	if a == nil || a.Controller == nil {
 		return errors.New("controller is required")
 	}
+	a.stopRunner()
+	var drainErr error
 	// 如果配置了宽限期，则先对当前服务执行摘流。
 	if a.gracePeriod != "" {
-		if err := a.Controller.Drain(ctx, a.gracePeriod); err != nil {
-			return err
-		}
+		drainErr = a.Controller.Drain(ctx, a.gracePeriod)
 	}
 	// 摘流完成后，再执行最终注销。
-	return a.Controller.Deregister(ctx)
+	return errors.Join(drainErr, a.Controller.Deregister(ctx))
+}
+
+// stopRunner 取消并等待在途注册；此后同一个 Agent 不再重新启动。
+func (a *Agent) stopRunner() {
+	a.runMu.Lock()
+	a.stopping = true
+	if a.runCancel != nil {
+		a.runCancel()
+	}
+	done := a.runDone
+	a.runMu.Unlock()
+	if done != nil {
+		<-done
+	}
+	if a.Controller != nil {
+		// 本地主动停止不计入远端断连次数。
+		a.Controller.mu.Lock()
+		a.Controller.status.Connected = false
+		a.Controller.mu.Unlock()
+	}
 }
 
 // Status 返回当前 agent 的最新状态快照。
@@ -247,29 +281,35 @@ func (a *Agent) Status() Status {
 
 // finishRun 统一处理 Run 的退出收尾逻辑。
 func (a *Agent) finishRun(serveErr error) error {
-	// 如果业务侧提供了关闭函数，则优先执行业务服务自己的关闭逻辑。
+	a.stopRunner()
+	ctx := context.Background()
+	var failures []error
+	// 先摘流，再关闭业务，最后注销；每一步失败都继续执行后续清理。
+	if a.Controller != nil && a.gracePeriod != "" {
+		if err := a.Controller.Drain(ctx, a.gracePeriod); err != nil {
+			failures = append(failures, &AgentRunError{Stage: AgentRunStageAgentShutdown, Err: err})
+		}
+	}
 	if a.shutdown != nil {
-		if err := a.shutdown(context.Background()); err != nil {
-			return &AgentRunError{
+		if err := a.shutdown(ctx); err != nil {
+			failures = append(failures, &AgentRunError{
 				Stage: AgentRunStageShutdown,
 				Err:   err,
-			}
+			})
 		}
 	}
-	// 无论业务服务是否报错，都执行 sidecar 摘流与注销收尾。
-	if err := a.Shutdown(context.Background()); err != nil {
-		return &AgentRunError{
-			Stage: AgentRunStageAgentShutdown,
-			Err:   err,
-		}
+	if a.Controller == nil {
+		failures = append(failures, &AgentRunError{Stage: AgentRunStageAgentShutdown, Err: errors.New("controller is required")})
+	} else if err := a.Controller.Deregister(ctx); err != nil {
+		failures = append(failures, &AgentRunError{Stage: AgentRunStageAgentShutdown, Err: err})
 	}
-	// 如果业务服务运行阶段有错误，则在完成 sidecar 收尾后再向上返回。
+	// 业务阶段错误与清理错误一并保留，供调用方逐分支判断。
 	if serveErr != nil {
-		return &AgentRunError{
+		failures = append(failures, &AgentRunError{
 			Stage: AgentRunStageServe,
 			Err:   serveErr,
-		}
+		})
 	}
 	// 所有收尾流程都成功时，返回 nil。
-	return nil
+	return errors.Join(failures...)
 }

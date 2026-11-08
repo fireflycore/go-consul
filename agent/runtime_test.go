@@ -71,8 +71,8 @@ func TestRunnerReplaysRegisterOnReconnect(t *testing.T) {
 	}
 }
 
-// TestRunnerMarksDisconnectedWhenRegisterFails 验证 register 失败时会把状态回退为断连。
-func TestRunnerMarksDisconnectedWhenRegisterFails(t *testing.T) {
+// TestRunnerKeepsConnectedWhenRegisterFails 验证登记失败不伪造 watch 断连。
+func TestRunnerKeepsConnectedWhenRegisterFails(t *testing.T) {
 	controller, err := NewController(&failingClient{}, testServiceNode("payment", 8080))
 	if err != nil {
 		t.Fatalf("new controller failed: %v", err)
@@ -100,8 +100,8 @@ func TestRunnerMarksDisconnectedWhenRegisterFails(t *testing.T) {
 	cancel()
 	<-done
 	status := controller.Status()
-	if status.Connected || status.Registered {
-		t.Fatal("expected controller to be disconnected after register failure")
+	if !status.Connected || status.Registered || status.DisconnectCount != 0 {
+		t.Fatalf("expected connected watch with unconfirmed registration: %+v", status)
 	}
 	if got, want := status.RegisterReplayFailureCount, 1; got != want {
 		t.Fatalf("unexpected replay failure count: got=%d want=%d", got, want)

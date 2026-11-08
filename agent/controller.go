@@ -56,7 +56,15 @@ func NewController(client Client, node *ServiceNode) (*Controller, error) {
 
 // OnConnected 在本机 agent 连接建立或恢复时重放 register。
 func (c *Controller) OnConnected(ctx context.Context) error {
-	// 连接恢复后，先基于固定 ServiceNode 重放一次 register。
+	c.mu.Lock()
+	c.status.Connected = true
+	c.status.LastConnectedAt = formatStatusTime(time.Now().UTC())
+	c.mu.Unlock()
+	return c.Register(ctx)
+}
+
+// Register 确认当前实例登记；失败重试不改变 watch 的连接状态和连接时间。
+func (c *Controller) Register(ctx context.Context) error {
 	if err := c.client.Register(ctx, c.node); err != nil {
 		// 如果重放失败，则先包装成带服务上下文的稳定错误类型。
 		replayErr := &RegisterReplayError{
@@ -71,6 +79,7 @@ func (c *Controller) OnConnected(ctx context.Context) error {
 		c.mu.Lock()
 		// 累加 register replay 失败次数，便于观测恢复链路稳定性。
 		c.status.RegisterReplayFailureCount++
+		c.status.Registered = false
 		// 即使失败，也更新最近一次参与重放的服务名。
 		c.status.LastServiceName = c.node.Service.Name
 		// 即使失败，也更新最近一次参与重放的服务端口。
@@ -86,18 +95,12 @@ func (c *Controller) OnConnected(ctx context.Context) error {
 	c.mu.Lock()
 	// 在函数退出前释放锁，确保成功状态完整写入。
 	defer c.mu.Unlock()
-	// 统一使用当前 UTC 时间记录本次连接恢复时间。
-	now := time.Now().UTC()
-	// 连接恢复后标记当前已连上本机 sidecar-agent。
-	c.status.Connected = true
 	// register 成功后标记当前实例已重新接管成功。
 	c.status.Registered = true
 	// 更新最近一次成功注册的服务名。
 	c.status.LastServiceName = c.node.Service.Name
 	// 更新最近一次成功注册的服务端口。
 	c.status.LastServicePort = int(c.node.ServerPort)
-	// 记录最近一次连接恢复成功时间。
-	c.status.LastConnectedAt = formatStatusTime(now)
 	// 累加成功 register replay 次数。
 	c.status.RegisterReplayCount++
 	// 注册恢复成功后清除最近错误，累计失败次数继续保留。
@@ -128,12 +131,24 @@ func (c *Controller) OnDisconnected() {
 
 // Drain 使用固定 ServiceNode 发起摘流。
 func (c *Controller) Drain(ctx context.Context, gracePeriod string) error {
-	return c.client.Drain(ctx, c.node.BuildDrainRequest(gracePeriod))
+	err := c.client.Drain(ctx, c.node.BuildDrainRequest(gracePeriod))
+	if err == nil {
+		c.mu.Lock()
+		c.status.Registered = false
+		c.mu.Unlock()
+	}
+	return err
 }
 
 // Deregister 使用固定 ServiceNode 发起注销。
 func (c *Controller) Deregister(ctx context.Context) error {
-	return c.client.Deregister(ctx, c.node.BuildDeregisterRequest())
+	err := c.client.Deregister(ctx, c.node.BuildDeregisterRequest())
+	if err == nil {
+		c.mu.Lock()
+		c.status.Registered = false
+		c.mu.Unlock()
+	}
+	return err
 }
 
 // Status 返回控制器的当前状态快照。
@@ -162,6 +177,9 @@ func (c *Controller) ObserveEvent(event ConnectionEvent) {
 	c.status.LastEventId = event.EventId
 	// 记录最近一次事件的观测时间。
 	c.status.LastEventAt = formatStatusTime(observedAt)
+	if event.Type == ConnectionEventTypeHeartbeat {
+		return
+	}
 	if event.Type == ConnectionEventTypeConnected || event.Connected {
 		// 对 connected 事件补记最近一次连接成功时间。
 		c.status.LastConnectedAt = formatStatusTime(observedAt)

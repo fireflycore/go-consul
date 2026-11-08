@@ -48,14 +48,19 @@
 2. `Runner` 消费 `connected / heartbeat / disconnected`
 3. 收到 `connected` 后触发 `Controller.OnConnected()`
 4. `Controller` 使用固定 `ServiceNode` 调 `ApiClient.Register(...)`
-5. 成功后更新状态并清空 `LastErrorKind / LastError / LastErrorAt`，保留累计失败次数；失败则记录 `register_replay` 错误并等待下一轮重连
+5. 成功后更新状态并清空 `LastErrorKind / LastError / LastErrorAt`，保留累计失败次数；临时失败在同一个 Runner 内按 1、2、4 秒退避重试，上限 30 秒，始终使用同一个实例身份
+6. HTTP 4xx 明确拒绝停止定时重试，408/429 除外；真实断连会取消本轮重试，重连后重新登记
+
+`Connected` 表示 watch 连接，`Registered` 表示登记是否成功；登记失败不会伪造断连。心跳只更新事件观测信息，不触发登记，也不改写连接和断连时间。`OnError` 在 Runner 内同步调用，应只记录错误或通知外层取消上下文；需要停止 Agent 时由外层执行，避免回调等待自身退出。
 
 退出阶段：
 
-1. 业务服务调用 `Shutdown(ctx)`，或 `Run(ctx)` 在退出路径中自动执行
-2. 如果配置了业务 `Shutdown` 回调，`Agent` 会先执行业务侧本地收尾
-3. 如果配置了 `GracePeriod`，`Agent` 再向 sidecar 发起 `Drain`
-4. 最后执行 `Deregister`
+1. 先取消并等待后台 watch/register 完成，此 Agent 不再重新启动
+2. 如果配置了 `GracePeriod`，向 sidecar 发起 `Drain`
+3. `Run(ctx)` 托管业务时，调用业务 `Shutdown` 回调
+4. 最后执行 `Deregister`；每一步失败仍继续后续清理，并保留全部阶段错误
+
+显式 `Shutdown(ctx)` 只负责 sidecar 摘流与注销，不调用业务回调。单独调用 `Drain(ctx)` 或 `Deregister(ctx)` 也会先停止后台循环，防止旧登记重试将实例重新上线。
 
 ### 退出错误分类
 

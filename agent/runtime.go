@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"net/http"
 	"time"
 )
 
@@ -45,7 +46,8 @@ type EventSource interface {
 	Subscribe(ctx context.Context) (<-chan ConnectionEvent, error)
 }
 
-// ErrorHandler 用于统一处理运行时中的非致命错误。
+// ErrorHandler 在 Runner 内同步处理非致命错误，应及时返回。
+// 需要停止 Agent 时应通知外层取消上下文，避免在回调内等待当前 Runner 退出。
 type ErrorHandler func(context.Context, error)
 
 // Runner 负责把连接事件转换成 register 重放动作。
@@ -87,12 +89,21 @@ func (r *Runner) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// 注册和重试都由当前循环执行，确保同一实例只有一个在途请求。
+	retryTimer := time.NewTimer(time.Hour)
+	retryTimer.Stop()
+	defer retryTimer.Stop()
+	var retry <-chan time.Time
+	retryDelay := time.Second
 	// 持续消费连接事件，直到上下文取消或事件源关闭。
 	for {
+		connected := false
 		select {
 		case <-ctx.Done():
 			// 上下文结束时，直接退出运行循环并透传取消原因。
 			return ctx.Err()
+		case <-retry:
+			retry = nil
 		case event, ok := <-events:
 			if !ok {
 				// 事件通道关闭表示 watch 源已结束，当前运行循环可以自然退出。
@@ -107,6 +118,9 @@ func (r *Runner) Run(ctx context.Context) error {
 			}
 			// 连接断开时先更新控制器状态，再透传错误上下文。
 			if event.Type == ConnectionEventTypeDisconnected || !event.Connected {
+				retryTimer.Stop()
+				retry = nil
+				retryDelay = time.Second
 				// 先把业务侧状态回退为 disconnected。
 				r.controller.OnDisconnected()
 				if event.Err != nil {
@@ -121,18 +135,37 @@ func (r *Runner) Run(ctx context.Context) error {
 				continue
 			}
 			// 连接建立或恢复时，立即重放 register 以重新接管业务实例。
-			if event.Type == ConnectionEventTypeConnected || event.Connected {
-				if err := r.controller.OnConnected(ctx); err != nil {
-					// 重放失败时，把当前状态回退为 disconnected，避免误认为已接管成功。
-					r.controller.OnDisconnected()
-					// 同时把重放失败错误写入最近错误快照。
-					r.controller.RecordError(err)
-					if r.onError != nil {
-						// 把带上下文的重放错误透传给业务侧统一处理。
-						r.onError(ctx, err)
-					}
-				}
-			}
+			connected = true
+			retryTimer.Stop()
+			retry = nil
+			retryDelay = time.Second
 		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		var registerErr error
+		if connected {
+			registerErr = r.controller.OnConnected(ctx)
+		} else {
+			registerErr = r.controller.Register(ctx)
+		}
+		if registerErr == nil {
+			retryDelay = time.Second
+			continue
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if r.onError != nil {
+			r.onError(ctx, registerErr)
+		}
+		// 参数错误和主动下线属于明确拒绝；临时依赖、网络及限流失败才重试。
+		var apiErr *SidecarAPIError
+		if errors.As(registerErr, &apiErr) && apiErr.StatusCode >= 400 && apiErr.StatusCode < 500 && apiErr.StatusCode != http.StatusTooManyRequests && apiErr.StatusCode != http.StatusRequestTimeout {
+			continue
+		}
+		retryTimer.Reset(retryDelay)
+		retry = retryTimer.C
+		retryDelay = min(retryDelay*2, 30*time.Second)
 	}
 }
