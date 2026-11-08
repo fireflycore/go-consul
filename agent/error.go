@@ -1,6 +1,9 @@
 package agent
 
-import "fmt"
+import (
+	"fmt"
+	"net"
+)
 
 const (
 	// AgentRunStageLifecycle 表示 sidecar watch/replay 生命周期阶段。
@@ -107,6 +110,57 @@ func (e *AgentRunError) Unwrap() error {
 	}
 	// 返回底层错误，便于调用方做进一步匹配。
 	return e.Err
+}
+
+// IsShutdownConnectionError 判断所有错误分支是否均为 sidecar 摘流或注销阶段的网络连接、超时错误。
+// nil、其他运行阶段、接口拒绝及包含这些失败的混合错误均返回 false；是否降级由调用方结合停机上下文决定。
+func IsShutdownConnectionError(err error) bool {
+	switch err := err.(type) {
+	case *AgentRunError:
+		return err != nil && err.Stage == AgentRunStageAgentShutdown && isSidecarConnectionError(err.Err)
+	case interface{ Unwrap() []error }:
+		children := err.Unwrap()
+		if len(children) == 0 {
+			return false
+		}
+		for _, child := range children {
+			if !IsShutdownConnectionError(child) {
+				return false
+			}
+		}
+		return true
+	case interface{ Unwrap() error }:
+		return IsShutdownConnectionError(err.Unwrap())
+	default:
+		return false
+	}
+}
+
+// isSidecarConnectionError 逐分支检查底层原因，不把协议错误或嵌套的其他阶段错误当作网络故障。
+func isSidecarConnectionError(err error) bool {
+	switch err := err.(type) {
+	case *AgentRunError:
+		return IsShutdownConnectionError(err)
+	case interface{ Unwrap() []error }:
+		children := err.Unwrap()
+		if len(children) == 0 {
+			return false
+		}
+		for _, child := range children {
+			if !isSidecarConnectionError(child) {
+				return false
+			}
+		}
+		return true
+	case *net.OpError:
+		return err != nil
+	case interface{ Unwrap() error }:
+		return isSidecarConnectionError(err.Unwrap())
+	case net.Error:
+		return err.Timeout()
+	default:
+		return false
+	}
 }
 
 // SidecarAPIError 表示 sidecar-agent 管理接口返回了非预期状态或失败结果。

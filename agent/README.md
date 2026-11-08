@@ -57,6 +57,12 @@
 3. 如果配置了 `GracePeriod`，`Agent` 再向 sidecar 发起 `Drain`
 4. 最后执行 `Deregister`
 
+### 退出错误分类
+
+`IsShutdownConnectionError(err)` 用于识别 sidecar 摘流、注销阶段的网络连接或超时失败。它检查包装和合并错误的全部分支；`nil`、业务运行错误、本地关闭错误、sidecar 接口拒绝，以及包含这些原因的混合错误均返回 `false`。
+
+该函数只提供分类，不修改 `Run` 的错误返回，也不决定退出码。业务服务可在根上下文主动取消且分类结果为 `true` 时记录 warning 后正常退出；其他错误继续返回。网络错误分类留在包内，不要求业务服务了解底层 `net.OpError` 或错误树结构。
+
 ## 对业务服务提供的功能
 
 - 统一构造 `ServiceNode`
