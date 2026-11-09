@@ -1,10 +1,10 @@
 module github.com/fireflycore/go-consul
 
-go 1.26.10
+go 1.27.3
 
 require (
-	github.com/fireflycore/go-micro v1.7.5
-	github.com/fireflycore/go-utils v0.3.8
+	github.com/fireflycore/go-micro v1.7.6
+	github.com/fireflycore/go-utils v0.3.9
 	github.com/hashicorp/consul/api v1.31.2
 )
 
@@ -33,7 +33,7 @@ require (
 	go.opentelemetry.io/otel/metric v1.45.0 // indirect
 	go.opentelemetry.io/otel/trace v1.45.0 // indirect
 	golang.org/x/exp v0.0.0-20260312153236-7ab1446f8b90 // indirect
-	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260803160001-6ac0973c030d // indirect
 	google.golang.org/grpc v1.83.2 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
